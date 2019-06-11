@@ -1,0 +1,7 @@
+[package]
+name = "rust_i_telex_teilnehmerserver"
+version = "0.1.0"
+authors = ["soruh <mail@soruh.de>"]
+edition = "2018"
+
+[dependencies]
