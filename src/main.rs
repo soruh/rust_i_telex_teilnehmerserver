@@ -24,10 +24,21 @@ enum Mode {
 }
 
 #[derive(Debug)]
+enum Status {
+    Idle,
+    Responding,
+    Accepting,
+}
+
+#[derive(Debug)]
 struct Client {
     socket: TcpStream,
+
     mode: Mode,
     parsing: bool,
+
+    status: Status,
+    send_queue: Vec<u8>,
 }
 
 impl Read for Client {
@@ -46,11 +57,23 @@ impl Write for Client {
     }
 }
 
+impl Client {
+    fn send_package(&mut self, package: Package) -> Result<(), String> {
+        self.write(serialize(package).as_slice())
+            .map(|_res| ())
+            .map_err(|_err| String::from("failed to send Package"))
+    }
+}
+
 fn handle_connection(socket: TcpStream) -> Result<(), String> {
     let mut client = Client {
         socket: socket,
+
         mode: Mode::Unknown,
         parsing: true,
+
+        status: Status::Idle,
+        send_queue: Vec::new(),
     };
 
     println!("new connection: {}", client.socket.peer_addr().unwrap());
@@ -61,7 +84,7 @@ fn handle_connection(socket: TcpStream) -> Result<(), String> {
     println!("client mode: {:?}", client.mode);
 
     while client.parsing {
-        handle_packages(&mut client)?;
+        consume_package(&mut client)?;
     }
 
     Ok(())
@@ -90,17 +113,17 @@ fn get_client_type(client: &mut Client) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_packages(client: &mut Client) -> Result<(), String> {
+fn consume_package(client: &mut Client) -> Result<(), String> {
     assert_ne!(client.mode, Mode::Unknown);
 
     if client.mode == Mode::Binary {
-        return handle_packages_binary(client);
+        return consume_package_binary(client);
     } else {
-        return handle_packages_ascii(client);
+        return consume_package_ascii(client);
     }
 }
 
-fn handle_packages_ascii(client: &mut Client) -> Result<(), String> {
+fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
     let mut line = String::new();
     for byte in client.bytes() {
         let byte = byte.map_err(|_| String::from("failed to read byte"))? as char;
@@ -140,7 +163,7 @@ fn handle_packages_ascii(client: &mut Client) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_packages_binary(client: &mut Client) -> Result<(), String> {
+fn consume_package_binary(client: &mut Client) -> Result<(), String> {
     let mut header = [0u8; 2];
     client
         .read_exact(&mut header)
@@ -400,7 +423,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x01;
             let package_length: u8 = 8;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -415,7 +438,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x02;
             let package_length: u8 = 4;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -428,7 +451,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x03;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -442,7 +465,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x04;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -453,16 +476,17 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x05;
             let package_length: u8 = 100;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
 
             buf.write_u32::<LittleEndian>(package.number).unwrap();
-            buf.write(string_to_bytes(package.name).as_slice()).unwrap();
+            buf.write(string_to_40_bytes(package.name).as_slice())
+                .unwrap();
             buf.write_u16::<LittleEndian>(package.flags).unwrap();
             buf.write_u8(package.client_type).unwrap();
-            buf.write(string_to_bytes(package.hostname).as_slice())
+            buf.write(string_to_40_bytes(package.hostname).as_slice())
                 .unwrap();
             buf.write(&package.ipaddress.octets()).unwrap();
             buf.write_u16::<LittleEndian>(package.port).unwrap();
@@ -476,7 +500,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x06;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -490,7 +514,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x07;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -504,7 +528,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x08;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -515,7 +539,7 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x09;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -526,13 +550,13 @@ fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x0A;
             let package_length: u8 = 41;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
 
             buf.write_u8(package.version).unwrap();
-            buf.write(string_to_bytes(package.pattern).as_slice())
+            buf.write(string_to_40_bytes(package.pattern).as_slice())
                 .unwrap();
 
             buf
@@ -545,7 +569,7 @@ fn serialize(package: Package) -> Vec<u8> {
 
             let package_length: u8 = message.capacity() as u8;
 
-            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -557,12 +581,15 @@ fn serialize(package: Package) -> Vec<u8> {
     }
 }
 
-fn string_to_bytes(input: CString) -> Vec<u8> {
+fn string_to_40_bytes(input: CString) -> Vec<u8> {
     const STRING_LENGTH: usize = 40;
 
-    let mut buf = input.into_bytes();
-    buf.truncate(STRING_LENGTH);
+    let mut buf = vec![0u8; STRING_LENGTH];
 
+    let mut input = input.into_bytes();
+    input.truncate(STRING_LENGTH);
+
+    buf.write(&input).unwrap();
     buf[STRING_LENGTH - 1] = 0;
 
     buf
@@ -573,19 +600,22 @@ fn string_to_bytes(input: CString) -> Vec<u8> {
 fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
     match package {
         Package::Type1(package) => {
-            client
-                .write(
-                    serialize(Package::Type2(PackageData2 {
-                        ipaddress: Ipv4Addr::new(127, 0, 0, 1),
-                        //TODO: replace with correct logic
-                    }))
-                    .as_slice(),
-                )
-                .map_err(|err| format!("{}", err))?;
+            client.send_package(Package::Type2(PackageData2 {
+                ipaddress: Ipv4Addr::new(127, 0, 0, 1),
+                //TODO: replace with correct logic
+            }))
         }
+        // Package::Type2(package) => {}
+        // Package::Type3(package) => {}
+        // Package::Type4(_package) => {}
+        Package::Type5(package) => Ok(()),
+        Package::Type6(package) => Ok(()),
+        Package::Type7(package) => Ok(()),
+        Package::Type8(_package) => Ok(()),
+        Package::Type9(_package) => Ok(()),
+        Package::Type10(package) => Ok(()),
+        Package::Type255(package) => Ok(()),
 
-        _ => return Err(String::from("recieved invalid package")),
+        _ => Err(String::from("recieved invalid package")),
     }
-
-    Ok(())
 }
