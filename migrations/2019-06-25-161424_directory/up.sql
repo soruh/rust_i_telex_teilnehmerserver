@@ -1,5 +1,5 @@
 CREATE TABLE directory (
-	uid BIGINT unsigned PRIMARY KEY,
+	uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
 	number int unsigned NOT NULL UNIQUE,
 	name VARCHAR(40) NOT NULL,
 	connection_type TINYINT unsigned NOT NULL,

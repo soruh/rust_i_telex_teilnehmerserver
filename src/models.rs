@@ -1,6 +1,7 @@
 use crate::schema::{directory, queue, servers};
 
 #[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
+#[changeset_options(treat_none_as_null = "true")]
 #[table_name = "directory"]
 pub struct DirectoryEntry {
     uid: u64,
@@ -19,6 +20,7 @@ pub struct DirectoryEntry {
 
 
 #[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
+#[changeset_options(treat_none_as_null = "true")]
 #[table_name = "queue"]
 pub struct QueueEntry {
     uid: u64,
@@ -28,6 +30,7 @@ pub struct QueueEntry {
 }
 
 #[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
+#[changeset_options(treat_none_as_null = "true")]
 #[table_name = "servers"]
 pub struct ServersEntry {
     uid: u64,

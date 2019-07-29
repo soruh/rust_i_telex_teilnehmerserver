@@ -1,8 +1,8 @@
 use std::env;
 
-use diesel::{insert_into, update};
-use diesel::prelude::*;
 
+use diesel::prelude::*;
+use diesel::{insert_into, update};
 
 use crate::models::*;
 
@@ -14,7 +14,7 @@ pub fn establish_connection() -> MysqlConnection {
     ))
 }
 
-pub fn get_entry(conn: &MysqlConnection, by_number: u32) -> Option<DirectoryEntry> {
+pub fn get_entry_by_number(conn: &MysqlConnection, by_number: u32) -> Option<DirectoryEntry> {
     use crate::schema::directory::dsl::*;
     directory
         .filter(number.eq(by_number))
@@ -22,6 +22,7 @@ pub fn get_entry(conn: &MysqlConnection, by_number: u32) -> Option<DirectoryEntr
         .optional()
         .unwrap()
 }
+
 
 pub fn create_entry(conn: &MysqlConnection, entry: &DirectoryEntry) -> bool {
     use crate::schema::directory::dsl::*;
@@ -35,10 +36,24 @@ pub fn create_entry(conn: &MysqlConnection, entry: &DirectoryEntry) -> bool {
 pub fn update_entry(conn: &MysqlConnection, entry: &DirectoryEntry) -> bool {
     use crate::schema::directory::dsl::*;
 
-    let affected_rows = update(directory)
-        .set(entry)
-        .execute(conn)
-        .unwrap();
+    let affected_rows = update(directory).set(entry).execute(conn).unwrap();
 
     affected_rows == 1
+}
+
+pub fn get_changed_entries(conn: &MysqlConnection) -> Vec<DirectoryEntry> {
+    use crate::schema::directory::dsl::*;
+    directory
+        .filter(changed.eq(true))
+        .get_results(conn)
+        .unwrap()
+}
+
+
+pub fn update_queue(conn: &MysqlConnection) -> Vec<usize> {
+    unimplemented!();
+    use crate::schema::directory::dsl::*;
+    // SELECT d.uid FROM directory AS d WHERE changed=1;
+    // SELECT s.uid FROM servers AS s;
+    // INSERT INTO queue (server, message, timestamp) VALUES (s.uid, d.uid, [timestamp]);
 }

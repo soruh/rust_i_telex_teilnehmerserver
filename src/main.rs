@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate diesel;
+extern crate crossbeam;
 extern crate dotenv;
 extern crate nom;
 
@@ -21,13 +22,18 @@ use serde::{deserialize, serialize};
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::thread;
 use std::time::Duration;
+
+#[cfg(test)]
+mod tests;
 
 fn main() {
     dotenv().ok();
 
-    let manager = ConnectionManager::<MysqlConnection>::new("postgres://localhost/");
+    let db_url =
+        std::env::var("DATABASE_URL").expect("failed to read 'DATABASE_URL' from environment");
+
+    let manager = ConnectionManager::<MysqlConnection>::new(db_url);
     let db_pool = Pool::builder()
         .build(manager)
         .expect("Failed to create pool.");
@@ -36,21 +42,59 @@ fn main() {
 
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 11814))).unwrap();
     println!("listening started, ready to accept");
+
     for socket in listener.incoming() {
         let socket = socket.unwrap();
         socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
 
-        let db_con = db_pool.get().expect("failed to get connection from pool");
+        crossbeam::scope(|scope| {
+            let pool = db_pool.clone();
+            scope.spawn(move |_| {
+                let conn = pool.get().unwrap();
 
-        thread::spawn(|| {
-            if let Err(error) = handle_connection(socket, db_con) {
-                println!("error: {}", error);
-            }
+                if let Err(error) = handle_connection(socket, conn) {
+                    println!("error: {}", error);
+                }
 
-            println!("connection closed");
-        });
+                println!("connection closed");
+            });
+        })
+        .unwrap();
     }
 }
+
+/*
+fn main() {
+    let db_url = "test.sqlite3";
+    let pool = Pool::builder()
+        .build(ConnectionManager::<SqliteConnection>::new(db_url))
+        .unwrap();
+
+    crossbeam::scope(|scope| {
+        let pool2 = pool.clone();
+        scope.spawn(move |_| {
+            let conn = pool2.get().unwrap();
+            for i in 0..100 {
+                let name = format!("John{}", i);
+                diesel::delete(users::table)
+                    .filter(users::name.eq(&name))
+                    .execute(&conn)
+                    .unwrap();
+            }
+        });
+
+        let conn = pool.get().unwrap();
+        for i in 0..100 {
+            let name = format!("John{}", i);
+            diesel::insert_into(users::table)
+                .values(User { name })
+                .execute(&conn)
+                .unwrap();
+        }
+    })
+    .unwrap();
+}
+*/
 
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
