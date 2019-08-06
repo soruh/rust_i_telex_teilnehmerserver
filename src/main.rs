@@ -1,19 +1,13 @@
-#[macro_use]
-extern crate diesel;
 extern crate crossbeam;
 extern crate dotenv;
 extern crate nom;
 
 pub mod models;
-pub mod schema;
 
 pub mod db;
 pub mod packages;
 pub mod serde;
 
-use diesel::mysql::MysqlConnection;
-use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 
 use dotenv::dotenv;
 
@@ -21,11 +15,14 @@ pub use crate::packages::*;
 use serde::{deserialize, serialize};
 
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
-#[cfg(test)]
-mod tests;
+use db::*;
+
+use crate::models::*;
+
+const SERVER_PIN: u32 = 42; //TODO: centralize
 
 fn main() {
     dotenv().ok();
@@ -40,7 +37,7 @@ fn main() {
 
     println!("connected to database");
 
-    let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 11814))).unwrap();
+    let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
     println!("listening started, ready to accept");
 
     for socket in listener.incoming() {
@@ -50,9 +47,9 @@ fn main() {
         crossbeam::scope(|scope| {
             let pool = db_pool.clone();
             scope.spawn(move |_| {
-                let conn = pool.get().unwrap();
+                let db_con = pool.get().unwrap();
 
-                if let Err(error) = handle_connection(socket, conn) {
+                if let Err(error) = handle_connection(socket, db_con) {
                     println!("error: {}", error);
                 }
 
@@ -104,21 +101,23 @@ enum Mode {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Status {
+enum State {
     Idle,
     Responding,
     Accepting,
+    Shutdown,
 }
 
-#[derive(Debug)]
 struct Client {
     socket: TcpStream,
 
     mode: Mode,
     parsing: bool,
 
-    status: Status,
-    send_queue: Vec<u8>,
+    db_con: PooledConnection<ConnectionManager<MysqlConnection>>,
+
+    state: State,
+    send_queue: Vec<DirectoryEntry>,
 }
 
 impl Read for Client {
@@ -148,11 +147,34 @@ impl Client {
         self.parsing = false;
         self.socket.shutdown(std::net::Shutdown::Both)
     }
+
+    fn send_queue_entry(&mut self) -> Result<(), String> {
+        if self.state != State::Responding {
+            return Err(format!(
+                "not in responding state. current state={:?}",
+                self.state
+            ));
+        }
+
+        let len = self.send_queue.len();
+
+        println!(
+            "entries left in queue: {} -> {}",
+            len,
+            if len == 0 { 0 } else { len - 1 }
+        );
+
+        if let Some(entry) = self.send_queue.pop() {
+            self.send_package(Package::Type5(PackageData5::from(entry)))
+        } else {
+            self.send_package(Package::Type9(PackageData9 {}))
+        }
+    }
 }
 
 fn handle_connection(
     socket: TcpStream,
-    db_pool: PooledConnection<ConnectionManager<MysqlConnection>>,
+    db_con: PooledConnection<ConnectionManager<MysqlConnection>>,
 ) -> Result<(), String> {
     let mut client = Client {
         socket: socket,
@@ -160,7 +182,9 @@ fn handle_connection(
         mode: Mode::Unknown,
         parsing: true,
 
-        status: Status::Idle,
+        db_con,
+
+        state: State::Idle,
         send_queue: Vec::new(),
     };
 
@@ -190,7 +214,7 @@ fn get_client_type(client: &mut Client) -> Result<(), String> {
 
     let first_byte = buf[0];
 
-    println!("first byte: {}", buf[0]);
+    println!("first byte: {:#04x}", buf[0]);
 
     if first_byte >= 32 && first_byte <= 126 {
         client.mode = Mode::Ascii;
@@ -214,7 +238,7 @@ fn consume_package(client: &mut Client) -> Result<(), String> {
 fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
     let mut line = String::new();
     for byte in client.bytes() {
-        let byte = byte.map_err(|_| String::from(String::from("failed to read byte")))? as char;
+        let byte = byte.map_err(|_| String::from("failed to read byte"))? as char;
 
         if byte == '\n' {
             break;
@@ -240,14 +264,19 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
 
         println!("handling 'q' request");
 
-        if let Ok(number) = number.as_str().parse::<u32>() {
-            println!("parsed number: '{}'", number);
+        let number = if let Ok(number) = number.as_str().parse::<u32>() {
+            number
         } else {
             return Err("failed to parse number".into());
-        }
+        };
+
+        println!("parsed number: '{}'", number);
+
+        unimplemented!("send response");
     }
 
     client.parsing = false;
+
     Ok(())
 }
 
@@ -255,7 +284,7 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
     let mut header = [0u8; 2];
     client
         .read_exact(&mut header)
-        .map_err(|_| String::from("failed to read package header"))?;
+        .map_err(|err| format!("failed to read package header. error: {:?}", err))?;
 
     let package_type = header[0];
     let package_length = header[1];
@@ -266,9 +295,13 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
         .map_err(|_| String::from("failed to read package body"))?;
 
     println!(
-        "got package of type: {} with length: {}\nbody: {:?}",
-        package_type, package_length, body
+        "got package of type: {} with length: {}",
+        package_type, package_length
     );
+
+    if body.len() > 0 {
+        println!("body: {:?}", body);
+    }
 
     match deserialize(package_type, &body) {
         Err(err) => {
@@ -285,24 +318,111 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
 }
 
 fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
+    println!("state: '{:?}'", client.state);
     match package {
         Package::Type1(package) => {
             let peer_addr = client.socket.peer_addr().unwrap();
-            client.send_package(Package::Type2(PackageData2 {
-                ipaddress: Ipv4Addr::new(127, 0, 0, 1),
-                //TODO: replace with correct logic
-            }))
+
+            let ipaddress = if let IpAddr::V4(ipaddress) = peer_addr.ip() {
+                Ok(ipaddress)
+            } else {
+                Err(String::from("client does not have an ipv4 address"))
+            }?;
+
+            let entry = get_entry_by_number(&client.db_con, package.number);
+
+            if let Some(entry) = entry {
+                if package.pin == entry.pin {
+                    update_entry_public(
+                        &client.db_con,
+                        package.number,
+                        package.port,
+                        u32::from(ipaddress),
+                    );
+                } else {
+                    return Err(String::from("wrong pin"));
+                }
+            } else {
+                register_entry(
+                    &client.db_con,
+                    package.number,
+                    package.pin,
+                    package.port,
+                    u32::from(ipaddress),
+                );
+            }
+
+            client.send_package(Package::Type2(PackageData2 { ipaddress }))
         }
         // Package::Type2(package) => {}
         // Package::Type3(package) => {}
         // Package::Type4(_package) => {}
-        Package::Type5(package) => Ok(()),
-        Package::Type6(package) => Ok(()),
-        Package::Type7(package) => Ok(()),
-        Package::Type8(_package) => Ok(()),
-        Package::Type9(_package) => Ok(()),
-        Package::Type10(package) => Ok(()),
-        Package::Type255(package) => Ok(()),
+        Package::Type5(package) => {
+            if client.state != State::Accepting {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            update_entry(&client.db_con, &DirectoryEntryChange::from(package));
+
+            client.send_package(Package::Type8(PackageData8 {}))
+        }
+        Package::Type6(package) => {
+            if package.version != 1 {
+                return Err(format!("invalid package version: {}", package.version));
+            }
+            if package.server_pin != SERVER_PIN {
+                return Err(String::from("invalid serverpin"));
+            }
+            if client.state != State::Idle {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            client.state = State::Responding;
+
+            client.send_queue.extend(get_all_entries(&client.db_con));
+
+            client.send_queue_entry()
+        }
+        Package::Type7(package) => {
+            if package.version != 1 {
+                return Err(format!("invalid package version: {}", package.version));
+            }
+            if package.server_pin != SERVER_PIN {
+                return Err(String::from("invalid serverpin"));
+            }
+            if client.state != State::Idle {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            client.state = State::Accepting;
+
+            client.send_package(Package::Type8(PackageData8 {}))
+        }
+        Package::Type8(_package) => {
+            if client.state != State::Responding {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            client.send_queue_entry()
+        }
+        Package::Type9(_package) => {
+            if client.state != State::Accepting {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            client.state = State::Shutdown;
+            client
+                .shutdown()
+                .map_err(|err| format!("failed to shut down socket. {:?}", err))
+        }
+        Package::Type10(package) => {
+            if package.version != 1 {
+                return Err(format!("invalid package version: {}", package.version));
+            }
+            get_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap().to_owned());
+            Err("unimplented".into())
+        }
+        Package::Type255(package) => Err(package.message.to_str().unwrap().to_owned()),
 
         _ => Err("recieved invalid package".into()),
     }

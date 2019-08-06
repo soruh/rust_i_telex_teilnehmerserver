@@ -153,7 +153,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x01;
             let package_length: u8 = 8;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -168,7 +168,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x02;
             let package_length: u8 = 4;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -181,7 +181,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x03;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -195,7 +195,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x04;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -206,7 +206,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x05;
             let package_length: u8 = 100;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -230,7 +230,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x06;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -244,7 +244,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x07;
             let package_length: u8 = 5;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -258,10 +258,14 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x08;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
+
+            println!("buf pre={:?}", buf);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
+
+            println!("buf post={:?}", buf);
 
             buf
         }
@@ -269,7 +273,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x09;
             let package_length: u8 = 0;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -280,7 +284,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             let package_type: u8 = 0x0A;
             let package_length: u8 = 41;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
@@ -299,7 +303,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
 
             let package_length: u8 = message.capacity() as u8;
 
-            let mut buf: Vec<u8> = vec![0u8; package_length as usize + 2];
+            let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();

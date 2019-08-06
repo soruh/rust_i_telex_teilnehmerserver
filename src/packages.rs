@@ -1,3 +1,4 @@
+use crate::models::DirectoryEntry;
 pub use std::ffi::CString;
 pub use std::net::Ipv4Addr;
 
@@ -31,6 +32,41 @@ pub struct PackageData5 {
     pub pin: u16,
     pub date: u32,
 }
+
+impl From<DirectoryEntry> for PackageData5 {
+    fn from(entry: DirectoryEntry) -> Self {
+        let hostname = if let Some(hostname) = entry.hostname {
+            CString::new(hostname).unwrap()
+        } else {
+            CString::new("").unwrap()
+        };
+
+        let ipaddress = if let Some(ipaddress) = entry.ipaddress {
+            std::net::Ipv4Addr::from(ipaddress)
+        } else {
+            std::net::Ipv4Addr::from(0)
+        };
+
+        let mut flags = 0u16;
+        if entry.disabled {
+            flags &= 0x02;
+        }
+
+        PackageData5 {
+            number: entry.number,
+            name: CString::new(entry.name).unwrap(),
+            flags,
+            client_type: entry.connection_type,
+            hostname,
+            ipaddress,
+            port: entry.port,
+            extension: entry.extension,
+            pin: entry.pin,
+            date: entry.timestamp,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PackageData6 {
     pub version: u8,

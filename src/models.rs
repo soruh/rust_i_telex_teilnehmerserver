@@ -1,40 +1,77 @@
-use crate::schema::{directory, queue, servers};
+use crate::packages::PackageData5;
 
-#[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
-#[changeset_options(treat_none_as_null = "true")]
-#[table_name = "directory"]
 pub struct DirectoryEntry {
-    uid: u64,
-    number: u32,
-    name: String,
-    connection_type: u8,
-    hostname: Option<String>,
-    ipaddress: Option<u32>,
-    port: u16,
-    extension: u16,
-    pin: u16,
-    disabled: bool,
-    timestamp: u32,
-    changed: bool,
+    pub uid: u64,
+    pub number: u32,
+    pub name: String,
+    pub connection_type: u8,
+    pub hostname: Option<String>,
+    pub ipaddress: Option<u32>,
+    pub port: u16,
+    pub extension: u8,
+    pub pin: u16,
+    pub disabled: bool,
+    pub timestamp: u32,
+    pub changed: bool,
 }
 
+pub struct DirectoryEntryChange {
+    pub number: u32,
+    pub name: String,
+    pub connection_type: u8,
+    pub hostname: Option<String>,
+    pub ipaddress: Option<u32>,
+    pub port: u16,
+    pub extension: u8,
+    pub pin: u16,
+    pub disabled: bool,
+    pub timestamp: u32,
+    pub changed: bool,
+}
 
-#[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
-#[changeset_options(treat_none_as_null = "true")]
-#[table_name = "queue"]
+impl From<PackageData5> for DirectoryEntryChange {
+    fn from(entry: PackageData5) -> Self {
+        let hostname = entry.hostname.to_str().unwrap().to_owned();
+
+        let hostname = if hostname.is_empty() {
+            None
+        } else {
+            Some(hostname)
+        };
+
+        let ipaddress = u32::from(entry.ipaddress);
+        let ipaddress: Option<u32> = if ipaddress == 0 {
+            None
+        } else {
+            Some(ipaddress)
+        };
+
+        DirectoryEntryChange {
+            number: entry.number,
+            name: entry.name.to_str().unwrap().to_owned(),
+            connection_type: entry.client_type,
+            hostname,
+            ipaddress,
+            port: entry.port,
+            extension: entry.extension,
+            pin: entry.pin,
+            disabled: (entry.flags & 0x02) != 0,
+            timestamp: entry.date,
+            changed: true,
+        }
+    }
+}
+
 pub struct QueueEntry {
-    uid: u64,
-    server: u32,
-    message: u32,
-    timestamp: u32,
+    pub uid: u64,
+    pub server: u32,
+    pub message: u32,
+    pub timestamp: u32,
 }
 
-#[derive(QueryableByName, Queryable, Insertable, AsChangeset)]
-#[changeset_options(treat_none_as_null = "true")]
-#[table_name = "servers"]
 pub struct ServersEntry {
-    uid: u64,
-    address: String,
-    version: u8,
-    port: u16,
+    pub uid: u64,
+    pub address: String,
+    pub version: u8,
+    pub port: u16,
 }
