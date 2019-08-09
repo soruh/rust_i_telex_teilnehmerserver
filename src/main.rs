@@ -2,12 +2,15 @@ extern crate crossbeam;
 extern crate dotenv;
 extern crate nom;
 
+#[macro_use]
+extern crate rusqlite;
+use rusqlite::OpenFlags;
+
 pub mod models;
 
 pub mod db;
 pub mod packages;
 pub mod serde;
-
 
 use dotenv::dotenv;
 
@@ -27,15 +30,21 @@ const SERVER_PIN: u32 = 42; //TODO: centralize
 fn main() {
     dotenv().ok();
 
-    let db_url =
-        std::env::var("DATABASE_URL").expect("failed to read 'DATABASE_URL' from environment");
+    let db_path = "./database.db";
+    // std::env::var("DATABASE_PATH").expect("failed to read 'DATABASE_PATH' from environment");s
 
-    let manager = ConnectionManager::<MysqlConnection>::new(db_url);
-    let db_pool = Pool::builder()
-        .build(manager)
-        .expect("Failed to create pool.");
+    {
+        let initial_db_open_flags =
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
+        let initial_db_con =
+            rusqlite::Connection::open_with_flags(db_path, initial_db_open_flags).unwrap();
+        create_tables(&initial_db_con);
+        initial_db_con
+            .close()
+            .expect("failed to close initial database connection");
+    }
 
-    println!("connected to database");
+    println!("database is initialized");
 
     let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
     println!("listening started, ready to accept");
@@ -44,19 +53,16 @@ fn main() {
         let socket = socket.unwrap();
         socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
 
-        crossbeam::scope(|scope| {
-            let pool = db_pool.clone();
-            scope.spawn(move |_| {
-                let db_con = pool.get().unwrap();
+        let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let db_con = rusqlite::Connection::open_with_flags(db_path, db_open_flags).unwrap();
 
-                if let Err(error) = handle_connection(socket, db_con) {
-                    println!("error: {}", error);
-                }
+        std::thread::spawn(|| {
+            if let Err(error) = handle_connection(socket, db_con) {
+                println!("error: {}", error);
+            }
 
-                println!("connection closed");
-            });
-        })
-        .unwrap();
+            println!("connection closed");
+        });
     }
 }
 
@@ -114,7 +120,7 @@ struct Client {
     mode: Mode,
     parsing: bool,
 
-    db_con: PooledConnection<ConnectionManager<MysqlConnection>>,
+    db_con: rusqlite::Connection,
 
     state: State,
     send_queue: Vec<DirectoryEntry>,
@@ -172,10 +178,7 @@ impl Client {
     }
 }
 
-fn handle_connection(
-    socket: TcpStream,
-    db_con: PooledConnection<ConnectionManager<MysqlConnection>>,
-) -> Result<(), String> {
+fn handle_connection(socket: TcpStream, db_con: rusqlite::Connection) -> Result<(), String> {
     let mut client = Client {
         socket: socket,
 
@@ -333,11 +336,11 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             if let Some(entry) = entry {
                 if package.pin == entry.pin {
-                    update_entry_public(
+                    update_entry_address(
                         &client.db_con,
-                        package.number,
                         package.port,
                         u32::from(ipaddress),
+                        package.number,
                     );
                 } else {
                     return Err(String::from("wrong pin"));
@@ -362,8 +365,20 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
 
-            update_entry(&client.db_con, &DirectoryEntryChange::from(package));
+            let entry = DirectoryEntry::from(package);
 
+            upsert_entry(
+                &client.db_con,
+                entry.number,
+                entry.name,
+                entry.connection_type,
+                entry.hostname,
+                entry.ipaddress,
+                entry.port,
+                entry.extension,
+                entry.pin,
+                entry.disabled,
+            );
             client.send_package(Package::Type8(PackageData8 {}))
         }
         Package::Type6(package) => {

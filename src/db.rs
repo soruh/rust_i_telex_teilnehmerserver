@@ -1,181 +1,268 @@
-use std::env;
-
-
-
 use crate::models::*;
+use rusqlite::{Connection, NO_PARAMS};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::path::Path;
 
-
-
-
-
-
-fn loop_until_available<F, T>(mut action: F) -> sqlite::Result<T>
-where
-    F: FnMut() -> sqlite::Result<T>,
-{
-    loop {
-        let res = action();
-        match res {
-            Ok(value) => return Ok(value),
-            Err(err) => {
-                if err.message != Some("database is locked".into()) {
-                    return Err(err);
-                }
-            }
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-}
-
-fn execute<T: AsRef<str>>(conn: &sqlite::Connection, statement: T) -> sqlite::Result<()> {
-    loop_until_available(|| conn.execute(&statement))
-}
-
-fn prepare<T: AsRef<str>>(
-    conn: &sqlite::Connection,
-    statement: T,
-) -> sqlite::Result<sqlite::Statement> {
-    loop_until_available(|| conn.prepare(&statement))
-}
-
-fn next(statement: &mut sqlite::Statement) -> sqlite::Result<sqlite::State> {
-    loop_until_available(|| statement.next())
-}
-
-
-pub fn connect<T: AsRef<Path>>(path: T) -> sqlite::Connection {
-    let open_flags = sqlite::OpenFlags::new()
-        .set_create()
-        .set_read_write()
-        .set_no_mutex();
-    let conn = sqlite::Connection::open_with_flags(path, open_flags).unwrap();
-    conn
-}
-
-
-pub fn create_tables(conn: &sqlite::Connection) -> sqlite::Result<()> {
-    execute(conn, "
-    CREATE TABLE IF NOT EXISTS queue (
-        uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
-        server INTEGER unsigned NOT NULL,
-        message INTEGER unsigned NOT NULL,
-        timestamp INT unsigned NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS servers (
-        uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
-        address VARCHAR(40) NOT NULL,
-        version TINYINT unsigned NOT NULL,
-        port SMALLINT unsigned NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS directory (
-        uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
-        number int unsigned NOT NULL UNIQUE,
-        name VARCHAR(40) NOT NULL,
-        connection_type TINYINT unsigned NOT NULL,
-        hostname VARCHAR(40),
-        ipaddress INT unsigned,
-        port SMALLINT unsigned NOT NULL,
-        extension SMALLINT unsigned NOT NULL,
-        pin SMALLINT unsigned NOT NULL,
-        disabled BOOLEAN NOT NULL,
-        timestamp INT unsigned NOT NULL,
-        changed BOOLEAN NOT NULL
-    );
-    ")
-}
-
-
-
-pub fn get_entry_by_number(conn: &sqlite::Connection, by_number: u32) -> Option<DirectoryEntry> {
-    let statement = prepare(conn, "SELECT * FROM directory WHERE number=?;").unwrap();
-    statement.bind(1, by_number);
-}
-
-pub fn get_all_entries(conn: &sqlite::Connection) -> Vec<DirectoryEntry> {
-    directory.get_results(conn).unwrap()
-}
-
-pub fn create_entry(conn: &sqlite::Connection, entry: &DirectoryEntry) -> bool {
-
-    let affected_rows = insert_into(directory).values(entry).execute(conn).unwrap();
-
-    affected_rows == 1
-}
-
-pub fn update_entry(conn: &sqlite::Connection, entry: &DirectoryEntryChange) -> bool {
-
-    let affected_rows = update(
-        directory
-            .filter(number.eq(entry.number))
-            .filter(timestamp.lt(entry.timestamp)),
+pub fn create_tables(conn: &Connection) {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS queue (
+            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            server INTEGER unsigned NOT NULL,
+            message INTEGER unsigned NOT NULL,
+            timestamp INT unsigned NOT NULL
+        );",
+        NO_PARAMS,
     )
-    .set(entry)
-    .execute(conn)
-    .unwrap();
+    .expect("failed to create 'queue' table");
 
-    affected_rows == 1
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS servers (
+            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            address VARCHAR(40) NOT NULL,
+            version TINYINT unsigned NOT NULL,
+            port SMALLINT unsigned NOT NULL
+        );",
+        NO_PARAMS,
+    )
+    .expect("failed to create 'servers' table");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS directory (
+            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            number int unsigned NOT NULL UNIQUE,
+            name VARCHAR(40) NOT NULL,
+            connection_type TINYINT unsigned NOT NULL,
+            hostname VARCHAR(40),
+            ipaddress INT unsigned,
+            port SMALLINT unsigned NOT NULL,
+            extension SMALLINT unsigned NOT NULL,
+            pin SMALLINT unsigned NOT NULL,
+            disabled BOOLEAN NOT NULL,
+            timestamp INT unsigned NOT NULL,
+            changed BOOLEAN NOT NULL
+        );",
+        NO_PARAMS,
+    )
+    .expect("failed to create 'directory' table");
 }
 
-pub fn get_changed_entries(conn: &sqlite::Connection) -> Vec<DirectoryEntry> {
-    directory
-        .filter(changed.eq(true))
-        .get_results(conn)
-        .unwrap()
+pub fn get_entries<'a, P>(conn: &'a Connection, condition: &str, params: P) -> Vec<DirectoryEntry>
+where
+    P: IntoIterator,
+    P::Item: rusqlite::ToSql,
+{
+    let mut query = String::from("SELECT uid, number, name, connection_type, hostname, ipaddress, port, extension, pin, disabled, timestamp, changed FROM directory ");
+    query.push_str(condition);
+    query.push_str(";");
+
+    let mut stmt = conn.prepare(query.as_ref()).unwrap();
+
+    let entry_iter = stmt
+        .query_map(params, |row| -> rusqlite::Result<DirectoryEntry> {
+            Ok(DirectoryEntry {
+                uid: row.get_unwrap(0),
+                number: row.get_unwrap(1),
+                name: row.get_unwrap(2),
+                connection_type: row.get_unwrap(3),
+                hostname: row.get_unwrap(4),
+                ipaddress: row.get_unwrap(5),
+                port: row.get_unwrap(6),
+                extension: row.get_unwrap(7),
+                pin: row.get_unwrap(8),
+                disabled: row.get_unwrap(9),
+                timestamp: row.get_unwrap(10),
+                changed: row.get_unwrap(11),
+            })
+        })
+        .unwrap();
+
+    let mut entries = Vec::new();
+
+    for entry in entry_iter {
+        entries.push(entry.unwrap());
+    }
+
+    println!("got entries from db: {:#?}", entries);
+
+    entries
 }
 
-pub fn update_queue(conn: &sqlite::Connection) -> Vec<usize> {
+pub fn get_entry_by_number(conn: &Connection, number: u32) -> Option<DirectoryEntry> {
+    get_entries(&conn, "WHERE number=?", params!(number)).pop()
+}
+
+pub fn get_all_entries(conn: &Connection) -> Vec<DirectoryEntry> {
+    get_entries(&conn, "", NO_PARAMS)
+}
+
+pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
+    conn.execute(
+        "INSERT INTO directory (
+            uid,
+            number,
+            name,
+            connection_type,
+            hostname,
+            ipaddress,
+            port,
+            extension,
+            pin,
+            disabled,
+            timestamp,
+            changed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+        params![
+            entry.uid,
+            entry.number,
+            entry.name,
+            entry.connection_type,
+            entry.hostname,
+            entry.ipaddress,
+            entry.port,
+            entry.extension,
+            entry.pin,
+            entry.disabled,
+            entry.timestamp,
+            entry.changed,
+        ],
+    )
+    .unwrap()
+        > 0
+}
+
+pub fn get_changed_entries(conn: &Connection) -> Vec<DirectoryEntry> {
+    get_entries(conn, "WHERE changed=1", NO_PARAMS)
+}
+
+pub fn update_queue(_conn: &Connection) -> Vec<usize> {
     unimplemented!("update_queue");
     // SELECT d.uid FROM directory AS d WHERE changed=1;
     // SELECT s.uid FROM servers AS s;
     // INSERT INTO queue (server, message, timestamp) VALUES (s.uid, d.uid, [timestamp]);
 }
 
-fn get_unix_timestamp() -> u32 {
+pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipaddress: u32) -> bool {
+    conn.execute(
+        "INSERT INTO directory (name, timestamp, changed, connection_type, extension, disabled, number, pin, port, ipaddress) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+        params!["?", get_current_unix_timestamp(), 1, 5, 0, 1, number, pin, port, ipaddress],
+    )
+    .unwrap()
+        > 0
+}
+
+pub fn update_entry_address(conn: &Connection, port: u16, ipaddress: u32, number: u32) -> bool {
+    conn.execute(
+        "UPDATE directory SET
+            port=?,
+            ipaddress=?,
+        WHERE
+            number=?,
+        ;",
+        params![port, ipaddress, number],
+    )
+    .unwrap()
+        > 0
+}
+
+fn get_current_unix_timestamp() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as u32
 }
 
-pub fn register_entry(
-    conn: &sqlite::Connection,
-    arg_number: u32,
-    arg_pin: u16,
-    arg_port: u16,
-    arg_ipaddress: u32,
-) {
-    insert_into(directory)
-        .values((
-            number.eq(arg_number),
-            pin.eq(arg_pin),
-            port.eq(arg_port),
-            name.eq(String::from("?")),
-            connection_type.eq(5),
-            ipaddress.eq(arg_ipaddress),
-            changed.eq(true),
-            timestamp.eq(get_unix_timestamp()),
-            disabled.eq(true),
-            extension.eq(0),
-        ))
-        .execute(conn)
+pub fn upsert_entry(
+    conn: &Connection,
+    number: u32,
+    name: String,
+    connection_type: u8,
+    hostname: Option<String>,
+    ipaddress: Option<u32>,
+    port: u16,
+    extension: u8,
+    pin: u16,
+    disabled: bool,
+) -> bool {
+    let timestamp: Option<u32> = conn
+        .query_row(
+            "SELECT timestamp FROM directory WHERE number=?;",
+            params!(number),
+            |row| {
+                Ok(if let Ok(timestamp) = row.get(0) {
+                    Some(timestamp)
+                } else {
+                    None
+                })
+            },
+        )
         .unwrap();
+
+    let params = params![
+        number,
+        name,
+        connection_type,
+        hostname,
+        ipaddress,
+        port,
+        extension,
+        pin,
+        disabled,
+    ];
+    let current_timestamp = get_current_unix_timestamp();
+    if let Some(old_timestamp) = timestamp {
+        if old_timestamp < current_timestamp {
+            conn.execute(
+                "UPDATE directory SET
+                changed=1,
+                number=?,
+                name=?,
+                connection_type=?,
+                hostname=?,
+                ipaddress=?,
+                port=?,
+                extension=?,
+                pin=?,
+                disabled=?,
+            ;",
+                params,
+            )
+            .unwrap()
+                > 0
+        } else {
+            false
+        }
+    } else {
+        conn.execute(
+            "INSERT INTO directory (
+                changed,
+                number,
+                name,
+                connection_type,
+                hostname,
+                ipaddress,
+                port,
+                extension,
+                pin,
+                disabled,
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            params,
+        )
+        .unwrap()
+            > 0
+    }
 }
 
-pub fn update_entry_public(
-    conn: &sqlite::Connection,
-    arg_number: u32,
-    arg_port: u16,
-    arg_ipaddress: u32,
-) {
-    update(directory.filter(number.eq(arg_number)))
-        .set((port.eq(arg_port), ipaddress.eq(arg_ipaddress)))
-        .execute(conn)
-        .unwrap();
-}
-pub fn get_entries_by_pattern( conn: &sqlite::Connection, pattern: String) {
-    unimplemented!();
-    // select()
+pub fn get_entries_by_pattern(conn: &Connection, pattern: String) -> Vec<DirectoryEntry> {
+    let mut condition = String::from("WHERE name LIKE ");
+
+    let mut params = Vec::new();
+    for (i, word) in pattern.split_ascii_whitespace().enumerate() {
+        if i != 0 {
+            condition.push_str(" OR LIKE ")
+        }
+        condition.push_str("?");
+
+        params.push(word);
+    }
+
+    get_entries(&conn, condition.as_ref(), &params)
 }

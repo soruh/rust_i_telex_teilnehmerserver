@@ -1,7 +1,8 @@
 use crate::packages::PackageData5;
 
+#[derive(Debug)]
 pub struct DirectoryEntry {
-    pub uid: u64,
+    pub uid: Option<u32>,
     pub number: u32,
     pub name: String,
     pub connection_type: u8,
@@ -15,21 +16,7 @@ pub struct DirectoryEntry {
     pub changed: bool,
 }
 
-pub struct DirectoryEntryChange {
-    pub number: u32,
-    pub name: String,
-    pub connection_type: u8,
-    pub hostname: Option<String>,
-    pub ipaddress: Option<u32>,
-    pub port: u16,
-    pub extension: u8,
-    pub pin: u16,
-    pub disabled: bool,
-    pub timestamp: u32,
-    pub changed: bool,
-}
-
-impl From<PackageData5> for DirectoryEntryChange {
+impl From<PackageData5> for DirectoryEntry {
     fn from(entry: PackageData5) -> Self {
         let hostname = entry.hostname.to_str().unwrap().to_owned();
 
@@ -46,7 +33,8 @@ impl From<PackageData5> for DirectoryEntryChange {
             Some(ipaddress)
         };
 
-        DirectoryEntryChange {
+        DirectoryEntry {
+            uid: None,
             number: entry.number,
             name: entry.name.to_str().unwrap().to_owned(),
             connection_type: entry.client_type,
