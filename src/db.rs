@@ -1,6 +1,6 @@
 use crate::models::*;
 use rusqlite::{Connection, NO_PARAMS};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn create_tables(conn: &Connection) {
     conn.execute(
@@ -143,7 +143,7 @@ pub fn update_queue(_conn: &Connection) -> Vec<usize> {
 pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipaddress: u32) -> bool {
     conn.execute(
         "INSERT INTO directory (name, timestamp, changed, connection_type, extension, disabled, number, pin, port, ipaddress) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-        params!["?", get_current_unix_timestamp(), 1, 5, 0, 1, number, pin, port, ipaddress],
+        params!["?", get_current_itelex_timestamp(), 1, 5, 0, 1, number, pin, port, ipaddress],
     )
     .unwrap()
         > 0
@@ -163,9 +163,15 @@ pub fn update_entry_address(conn: &Connection, port: u16, ipaddress: u32, number
         > 0
 }
 
-fn get_current_unix_timestamp() -> u32 {
+lazy_static! {
+    static ref ITELEX_EPOCH: SystemTime = UNIX_EPOCH
+        .checked_sub(Duration::from_secs(60 * 60 * 24 * 365 * 70))
+        .unwrap();
+}
+
+fn get_current_itelex_timestamp() -> u32 {
     SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+        .duration_since(*ITELEX_EPOCH)
         .unwrap()
         .as_secs() as u32
 }
@@ -181,20 +187,13 @@ pub fn upsert_entry(
     extension: u8,
     pin: u16,
     disabled: bool,
+    new_timestamp: u32,
 ) -> bool {
-    let timestamp: Option<u32> = conn
-        .query_row(
-            "SELECT timestamp FROM directory WHERE number=?;",
-            params!(number),
-            |row| {
-                Ok(if let Ok(timestamp) = row.get(0) {
-                    Some(timestamp)
-                } else {
-                    None
-                })
-            },
-        )
-        .unwrap();
+    let timestamp: rusqlite::Result<u32> = conn.query_row(
+        "SELECT timestamp FROM directory WHERE number=?;",
+        params!(number),
+        |row| row.get(0),
+    );
 
     let params = params![
         number,
@@ -206,10 +205,16 @@ pub fn upsert_entry(
         extension,
         pin,
         disabled,
+        new_timestamp,
     ];
-    let current_timestamp = get_current_unix_timestamp();
-    if let Some(old_timestamp) = timestamp {
-        if old_timestamp < current_timestamp {
+
+    println!(
+        "old_timestamp={:?} current_timestamp={}",
+        timestamp, new_timestamp
+    );
+
+    if let Ok(old_timestamp) = timestamp {
+        if old_timestamp < new_timestamp {
             conn.execute(
                 "UPDATE directory SET
                 changed=1,
@@ -222,6 +227,7 @@ pub fn upsert_entry(
                 extension=?,
                 pin=?,
                 disabled=?,
+                timestamp=?
             ;",
                 params,
             )
@@ -243,7 +249,8 @@ pub fn upsert_entry(
                 extension,
                 pin,
                 disabled,
-            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                timestamp
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             params,
         )
         .unwrap()
@@ -252,11 +259,14 @@ pub fn upsert_entry(
 }
 
 pub fn get_entries_by_pattern(conn: &Connection, pattern: String) -> Vec<DirectoryEntry> {
-    let mut condition = String::from("WHERE name LIKE ");
+    let mut condition = String::from("");
 
     let mut params = Vec::new();
     for (i, word) in pattern.split_ascii_whitespace().enumerate() {
-        if i != 0 {
+        println!("i: {}, word: {:?}", i, word);
+        if i == 0 {
+            condition.push_str("WHERE name LIKE ")
+        } else {
             condition.push_str(" OR LIKE ")
         }
         condition.push_str("?");
@@ -264,5 +274,15 @@ pub fn get_entries_by_pattern(conn: &Connection, pattern: String) -> Vec<Directo
         params.push(word);
     }
 
+    println!("pattern: {:?}, params: {:?}", condition, params);
+
     get_entries(&conn, condition.as_ref(), &params)
+}
+
+pub fn get_queue(addr: std::net::SocketAddr) -> Vec<DirectoryEntry> {
+    let identifier = format!("{}:{}", addr.ip(), addr.port());
+
+    println!("identifier={:?}", identifier);
+
+    unimplemented!();
 }

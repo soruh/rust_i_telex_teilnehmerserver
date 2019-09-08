@@ -6,6 +6,9 @@ extern crate nom;
 extern crate rusqlite;
 use rusqlite::OpenFlags;
 
+#[macro_use]
+extern crate lazy_static;
+
 pub mod models;
 
 pub mod db;
@@ -25,79 +28,9 @@ use db::*;
 
 use crate::models::*;
 
-const SERVER_PIN: u32 = 42; //TODO: centralize
-
-fn main() {
-    dotenv().ok();
-
-    let db_path = "./database.db";
-    // std::env::var("DATABASE_PATH").expect("failed to read 'DATABASE_PATH' from environment");s
-
-    {
-        let initial_db_open_flags =
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
-        let initial_db_con =
-            rusqlite::Connection::open_with_flags(db_path, initial_db_open_flags).unwrap();
-        create_tables(&initial_db_con);
-        initial_db_con
-            .close()
-            .expect("failed to close initial database connection");
-    }
-
-    println!("database is initialized");
-
-    let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
-    println!("listening started, ready to accept");
-
-    for socket in listener.incoming() {
-        let socket = socket.unwrap();
-        socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
-
-        let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let db_con = rusqlite::Connection::open_with_flags(db_path, db_open_flags).unwrap();
-
-        std::thread::spawn(|| {
-            if let Err(error) = handle_connection(socket, db_con) {
-                println!("error: {}", error);
-            }
-
-            println!("connection closed");
-        });
-    }
-}
-
-/*
-fn main() {
-    let db_url = "test.sqlite3";
-    let pool = Pool::builder()
-        .build(ConnectionManager::<SqliteConnection>::new(db_url))
-        .unwrap();
-
-    crossbeam::scope(|scope| {
-        let pool2 = pool.clone();
-        scope.spawn(move |_| {
-            let conn = pool2.get().unwrap();
-            for i in 0..100 {
-                let name = format!("John{}", i);
-                diesel::delete(users::table)
-                    .filter(users::name.eq(&name))
-                    .execute(&conn)
-                    .unwrap();
-            }
-        });
-
-        let conn = pool.get().unwrap();
-        for i in 0..100 {
-            let name = format!("John{}", i);
-            diesel::insert_into(users::table)
-                .values(User { name })
-                .execute(&conn)
-                .unwrap();
-        }
-    })
-    .unwrap();
-}
-*/
+const SERVER_PIN: u32 = 42;
+const DB_PATH: &str = "./database.db";
+//TODO: use config files
 
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
@@ -143,7 +76,25 @@ impl Write for Client {
 }
 
 impl Client {
+    fn new(socket: TcpStream) -> Self {
+        let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let db_con = rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).unwrap();
+
+        Client {
+            socket,
+
+            mode: Mode::Unknown,
+            parsing: true,
+
+            db_con,
+
+            state: State::Idle,
+            send_queue: Vec::new(),
+        }
+    }
+
     fn send_package(&mut self, package: Package) -> Result<(), String> {
+        println!("sending package: {:#?}", package);
         self.write(serialize(package).as_slice())
             .map(|_res| ())
             .map_err(|_err| "failed to send Package".into())
@@ -152,6 +103,10 @@ impl Client {
     fn shutdown(&mut self) -> std::result::Result<(), std::io::Error> {
         self.parsing = false;
         self.socket.shutdown(std::net::Shutdown::Both)
+    }
+
+    fn push_to_send_queue(&mut self, list: Vec<DirectoryEntry>) {
+        self.send_queue.extend(list);
     }
 
     fn send_queue_entry(&mut self) -> Result<(), String> {
@@ -178,23 +133,74 @@ impl Client {
     }
 }
 
-fn handle_connection(socket: TcpStream, db_con: rusqlite::Connection) -> Result<(), String> {
-    let mut client = Client {
-        socket: socket,
+fn main() {
+    dotenv().ok();
 
-        mode: Mode::Unknown,
-        parsing: true,
+    // std::env::var("DATABASE_PATH").expect("failed to read 'DATABASE_PATH' from environment");s
 
-        db_con,
+    {
+        let initial_db_open_flags =
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
 
-        state: State::Idle,
-        send_queue: Vec::new(),
-    };
+        let initial_db_con =
+            rusqlite::Connection::open_with_flags(DB_PATH, initial_db_open_flags).unwrap();
 
+        create_tables(&initial_db_con);
+
+        initial_db_con
+            .close()
+            .expect("failed to close initial database connection");
+    }
+
+    println!("database is initialized");
+
+    let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
+    // TODO: use config
+    println!("listening started, ready to accept");
+
+    for socket in listener.incoming() {
+        let socket = socket.unwrap();
+
+        setup_socket(&socket);
+
+        let client = Client::new(socket);
+
+        start_handle_loop(client);
+    }
+}
+
+fn setup_socket(socket: &TcpStream) {
+    socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
+}
+
+enum ConnectAction {
+    FullQuery,
+    SendList(Vec<DirectoryEntry>),
+}
+
+fn connect_to_client(addr: SocketAddr, action: ConnectAction) -> Client {
+    let socket = TcpStream::connect(addr).expect("Failed to connect to client"); // TODO: propagate error
+
+    setup_socket(&socket);
+
+    Client::new(socket)
+}
+
+fn start_handle_loop(mut client: Client) {  //TODO: rename functions
+    std::thread::spawn(move || {
+        if let Err(error) = handle_connection(client) {
+            println!("error: {}", error);
+        }
+
+        println!("connection closed");
+    });
+}
+
+fn handle_connection(mut client: Client) -> Result<(), String> {
     println!("new connection: {}", client.socket.peer_addr().unwrap());
 
-    get_client_type(&mut client)?;
-    assert_ne!(client.mode, Mode::Unknown);
+    peek_client_type(&mut client)?;
+    debug_assert_ne!(client.mode, Mode::Unknown);
 
     println!("client mode: {:?}", client.mode);
 
@@ -205,7 +211,7 @@ fn handle_connection(socket: TcpStream, db_con: rusqlite::Connection) -> Result<
     Ok(())
 }
 
-fn get_client_type(client: &mut Client) -> Result<(), String> {
+fn peek_client_type(client: &mut Client) -> Result<(), String> {
     assert_eq!(client.mode, Mode::Unknown);
 
     let mut buf = [0u8; 1];
@@ -215,15 +221,15 @@ fn get_client_type(client: &mut Client) -> Result<(), String> {
         return Err("Connection closed by remote".into());
     }
 
-    let first_byte = buf[0];
+    let [first_byte] = buf;
 
-    println!("first byte: {:#04x}", buf[0]);
+    println!("first byte: {:#04x}", first_byte);
 
-    if first_byte >= 32 && first_byte <= 126 {
-        client.mode = Mode::Ascii;
+    client.mode = if first_byte >= 32 && first_byte <= 126 {
+        Mode::Ascii
     } else {
-        client.mode = Mode::Binary;
-    }
+        Mode::Binary
+    };
 
     Ok(())
 }
@@ -289,8 +295,9 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
         .read_exact(&mut header)
         .map_err(|err| format!("failed to read package header. error: {:?}", err))?;
 
-    let package_type = header[0];
-    let package_length = header[1];
+    println!("header: {:?}", header);
+
+    let [package_type, package_length] = header;
 
     let mut body = vec![0u8; package_length as usize];
     client
@@ -306,15 +313,9 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
         println!("body: {:?}", body);
     }
 
-    match deserialize(package_type, &body) {
-        Err(err) => {
-            println!("failed to parse package: {}", err);
-        }
-        Ok(package) => {
-            println!("parsed package: {:#?}", package);
-            handle_package(client, package)?;
-        }
-    }
+    let package = deserialize(package_type, &body)?;
+    println!("parsed package: {:#?}", package);
+    handle_package(client, package)?;
 
     // client.parsing = true;
     Ok(())
@@ -324,6 +325,10 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
     println!("state: '{:?}'", client.state);
     match package {
         Package::Type1(package) => {
+            if client.state != State::Idle {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
             let peer_addr = client.socket.peer_addr().unwrap();
 
             let ipaddress = if let IpAddr::V4(ipaddress) = peer_addr.ip() {
@@ -365,19 +370,20 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
 
-            let entry = DirectoryEntry::from(package);
+            let new_entry = DirectoryEntry::from(package);
 
             upsert_entry(
                 &client.db_con,
-                entry.number,
-                entry.name,
-                entry.connection_type,
-                entry.hostname,
-                entry.ipaddress,
-                entry.port,
-                entry.extension,
-                entry.pin,
-                entry.disabled,
+                new_entry.number,
+                new_entry.name,
+                new_entry.connection_type,
+                new_entry.hostname,
+                new_entry.ipaddress,
+                new_entry.port,
+                new_entry.extension,
+                new_entry.pin,
+                new_entry.disabled,
+                new_entry.timestamp,
             );
             client.send_package(Package::Type8(PackageData8 {}))
         }
@@ -394,7 +400,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             client.state = State::Responding;
 
-            client.send_queue.extend(get_all_entries(&client.db_con));
+            client.push_to_send_queue(get_all_entries(&client.db_con));
 
             client.send_queue_entry()
         }
@@ -434,11 +440,55 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             if package.version != 1 {
                 return Err(format!("invalid package version: {}", package.version));
             }
+            if client.state != State::Idle {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
             get_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap().to_owned());
-            Err("unimplented".into())
+
+            client.state = State::Responding;
+
+            client.push_to_send_queue(get_all_entries(&client.db_con));
+
+            client.send_queue_entry()
         }
         Package::Type255(package) => Err(package.message.to_str().unwrap().to_owned()),
 
         _ => Err("recieved invalid package".into()),
     }
+}
+
+fn full_query(addr: SocketAddr) {
+    let mut client = connect_to_client(addr, ConnectAction::FullQuery);
+
+    client.state = State::Accepting;
+
+    client
+        .send_package(Package::Type7(PackageData7 {
+            version: 1,
+            server_pin: SERVER_PIN,
+        }))
+        .unwrap();
+
+    start_handle_loop(client);
+}
+
+fn send_queue(addr: SocketAddr) {
+    let list: Vec<DirectoryEntry> = get_queue(addr);
+
+    // TODO: delete queue entries, as they are transmitted
+
+    let mut client = connect_to_client(addr, ConnectAction::SendList(list));
+
+    client.state = State::Responding;
+
+    client.push_to_send_queue(list);
+
+    client
+        .send_package(Package::Type6(PackageData6 {
+            version: 1,
+            server_pin: SERVER_PIN,
+        }))
+        .unwrap();
+
+    start_handle_loop(client);
 }

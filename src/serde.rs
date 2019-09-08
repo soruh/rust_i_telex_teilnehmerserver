@@ -260,12 +260,8 @@ pub fn serialize(package: Package) -> Vec<u8> {
 
             let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
-            println!("buf pre={:?}", buf);
-
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
-
-            println!("buf post={:?}", buf);
 
             buf
         }
@@ -315,7 +311,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
     }
 }
 
-fn string_to_n_bytes(input: CString, n:usize) -> Vec<u8> {
+fn string_to_n_bytes(input: CString, n: usize) -> Vec<u8> {
     let mut buf = input.into_bytes(); // data without nul
 
     buf.truncate(n - 1); // leave space for a nul
