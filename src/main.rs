@@ -179,9 +179,11 @@ fn main() {
 
     println!("started server sync thread");
 
-    let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
+    let addr = SocketAddr::from(([0, 0, 0, 0], 11814));
+
+    let listener = TcpListener::bind(addr).unwrap();
     // TODO: use config
-    println!("listening started, ready to accept");
+    println!("listening for connections on {}", addr);
 
     for socket in listener.incoming() {
         let socket = socket.unwrap();
