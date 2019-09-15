@@ -1,5 +1,5 @@
 use crate::models::*;
-use rusqlite::{Connection, NO_PARAMS};
+use rusqlite::{Connection, Row, NO_PARAMS};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn create_tables(conn: &Connection) {
@@ -17,7 +17,7 @@ pub fn create_tables(conn: &Connection) {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS servers (
             uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
-            address VARCHAR(40) NOT NULL,
+            ip_address unsigned INT NOT NULL,
             version TINYINT unsigned NOT NULL,
             port SMALLINT unsigned NOT NULL
         );",
@@ -127,17 +127,6 @@ pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
     )
     .unwrap()
         > 0
-}
-
-pub fn get_changed_entries(conn: &Connection) -> Vec<DirectoryEntry> {
-    get_entries(conn, "WHERE changed=1", NO_PARAMS)
-}
-
-pub fn update_queue(_conn: &Connection) -> Vec<usize> {
-    unimplemented!("update_queue");
-    // SELECT d.uid FROM directory AS d WHERE changed=1;
-    // SELECT s.uid FROM servers AS s;
-    // INSERT INTO queue (server, message, timestamp) VALUES (s.uid, d.uid, [timestamp]);
 }
 
 pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipaddress: u32) -> bool {
@@ -258,7 +247,7 @@ pub fn upsert_entry(
     }
 }
 
-pub fn get_entries_by_pattern(conn: &Connection, pattern: String) -> Vec<DirectoryEntry> {
+pub fn get_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<DirectoryEntry> {
     let mut condition = String::from("");
 
     let mut params = Vec::new();
@@ -279,10 +268,95 @@ pub fn get_entries_by_pattern(conn: &Connection, pattern: String) -> Vec<Directo
     get_entries(&conn, condition.as_ref(), &params)
 }
 
-pub fn get_queue(addr: std::net::SocketAddr) -> Vec<DirectoryEntry> {
-    let identifier = format!("{}:{}", addr.ip(), addr.port());
+pub fn get_queue_for_server(
+    conn: &Connection,
+    server_uid: u32,
+) -> Vec<(DirectoryEntry, Option<u32>)> {
+    let mut stmt = conn
+        .prepare("SELECT message, uid FROM queue WHERE server=?;")
+        .unwrap();
+    let mut rows = stmt.query(params![server_uid]).unwrap();
 
-    println!("identifier={:?}", identifier);
+    let mut queue = Vec::new();
 
-    unimplemented!();
+    while let Some(row) = rows.next().unwrap() {
+        let message: u32 = row.get(0).unwrap();
+        let uid: u32 = row.get(1).unwrap();
+
+        let entry = get_entries(conn, "WHERE uid=?;", params![message])
+            .pop()
+            .unwrap();
+        queue.push((entry, Some(uid)));
+    }
+
+    queue
+}
+
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+pub fn get_server_address_for_uid(conn: &Connection, server_uid: u32) -> SocketAddr {
+    let (ip_int, port) = conn
+        .query_row(
+            "SELECT ip_address, port FROM servers WHERE uid=?;",
+            params![server_uid],
+            |row: &Row| -> rusqlite::Result<(u32, u16)> {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            },
+        )
+        .unwrap();
+
+    let ip = IpAddr::V4(Ipv4Addr::from(ip_int));
+    SocketAddr::new(ip, port)
+}
+
+pub fn remove_queue_entry(conn: &Connection, queue_uid: u32) {
+    conn.execute("DELETE FROM queue WHERE uid=?;", params![queue_uid])
+        .expect("failed to delete queue entry");
+}
+
+pub fn get_server_uids(conn: &Connection) -> Vec<u32> {
+    let mut stmt = conn.prepare("SELECT uid FROM servers;").unwrap();
+
+    stmt.query_map(NO_PARAMS, |row| Ok(row.get(0).unwrap()))
+        .unwrap()
+        .map(|res| res.unwrap())
+        .collect()
+}
+
+pub fn get_changed_entry_uids(conn: &Connection) -> Vec<u32> {
+    let mut stmt = conn
+        .prepare("SELECT uid FROM directory WHERE changed=1;")
+        .unwrap();
+
+    stmt.query_map(NO_PARAMS, |row| Ok(row.get(0).unwrap()))
+        .unwrap()
+        .map(|res| res.unwrap())
+        .collect()
+}
+
+pub fn update_queue(conn: &Connection) -> Result<(), String> {
+    let servers = get_server_uids(&conn);
+    let changed_entries = get_changed_entry_uids(&conn);
+
+    let mut stmt = conn
+        .prepare("INSERT INTO queue (server, message, timestamp) VALUES (?, ?, date('now'));")
+        .unwrap();
+
+    for server in &servers {
+        for entry in &changed_entries {
+            stmt.execute(params![server, entry]).unwrap();
+        }
+    }
+
+    Ok(()) //TODO
+}
+
+pub fn prune_old_queue_entries(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM queue WHERE timestamp > date('now', '+1 month');",
+        NO_PARAMS,
+    )
+    .unwrap();
+
+    Ok(()) //TODO
 }

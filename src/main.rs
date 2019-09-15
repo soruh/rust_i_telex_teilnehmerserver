@@ -22,7 +22,9 @@ use serde::{deserialize, serialize};
 
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use std::thread;
 
 use db::*;
 
@@ -56,7 +58,7 @@ struct Client {
     db_con: rusqlite::Connection,
 
     state: State,
-    send_queue: Vec<DirectoryEntry>,
+    send_queue: Vec<(DirectoryEntry, Option<u32>)>,
 }
 
 impl Read for Client {
@@ -75,11 +77,14 @@ impl Write for Client {
     }
 }
 
-impl Client {
-    fn new(socket: TcpStream) -> Self {
-        let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let db_con = rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).unwrap();
+fn open_db_connection() -> rusqlite::Connection {
+    let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
 
+    rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).unwrap()
+}
+
+impl Client {
+    fn new(socket: TcpStream, db_con: rusqlite::Connection) -> Self {
         Client {
             socket,
 
@@ -105,8 +110,16 @@ impl Client {
         self.socket.shutdown(std::net::Shutdown::Both)
     }
 
-    fn push_to_send_queue(&mut self, list: Vec<DirectoryEntry>) {
+    fn push_to_send_queue(&mut self, list: Vec<(DirectoryEntry, Option<u32>)>) {
         self.send_queue.extend(list);
+    }
+
+    fn push_entries_to_send_queue(&mut self, list: Vec<DirectoryEntry>) {
+        self.send_queue.reserve(list.len());
+
+        for entry in list {
+            self.send_queue.push((entry, None));
+        }
     }
 
     fn send_queue_entry(&mut self) -> Result<(), String> {
@@ -126,7 +139,15 @@ impl Client {
         );
 
         if let Some(entry) = self.send_queue.pop() {
-            self.send_package(Package::Type5(PackageData5::from(entry)))
+            let (package, queue_uid) = entry;
+
+            self.send_package(Package::Type5(PackageData5::from(package)))?;
+
+            if let Some(queue_uid) = queue_uid {
+                remove_queue_entry(&self.db_con, queue_uid);
+            }
+
+            Ok(())
         } else {
             self.send_package(Package::Type9(PackageData9 {}))
         }
@@ -154,6 +175,10 @@ fn main() {
 
     println!("database is initialized");
 
+    start_server_sync_thread();
+
+    println!("started server sync thread");
+
     let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 11814))).unwrap();
     // TODO: use config
     println!("listening started, ready to accept");
@@ -163,31 +188,98 @@ fn main() {
 
         setup_socket(&socket);
 
-        let client = Client::new(socket);
+        let db_conn = open_db_connection();
+        let client = Client::new(socket, db_conn);
 
         start_handle_loop(client);
     }
+}
+
+fn start_server_sync_thread() {
+    thread::spawn(move || {
+        struct Syncronizer {
+            name: String,
+            last_sync: Instant,
+            sync_interval: Duration,
+            action: fn(&rusqlite::Connection) -> Result<(), String>,
+        }
+
+        impl Syncronizer {
+            fn update(&mut self, conn: &rusqlite::Connection) -> Result<(), String> {
+                println!("running syncronizer {:?}", self.name);
+                let now = Instant::now();
+
+                if now >= self.last_sync + self.sync_interval {
+                    self.last_sync = now;
+                    (self.action)(conn)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        let last_year = Instant::now() - Duration::new(60 * 60 * 24 * 365, 0);
+        // ? assume last sync was one year ago
+
+        let mut syncronizers = vec![
+            Syncronizer {
+                name: "prune_old_queue_entries".into(),
+                action: prune_old_queue_entries,
+                sync_interval: Duration::new(60 * 60 * 24 * 7, 0),
+                last_sync: last_year,
+            },
+            Syncronizer {
+                name: "full_query".into(),
+                action: full_query,
+                sync_interval: Duration::new(60 * 60 * 24, 0),
+                last_sync: last_year,
+            },
+            Syncronizer {
+                name: "send_queue".into(),
+                action: send_queue,
+                sync_interval: Duration::new(30, 0),
+                last_sync: last_year,
+            },
+        ];
+
+        let sleep_duration = Duration::new(60, 0);
+        // ? check if sync is neccessary every _minute_
+
+        let db_conn = open_db_connection();
+
+        loop {
+            for syncronizer in &mut syncronizers {
+                if let Err(err) = syncronizer.update(&db_conn) {
+                    println!(
+                        "failed to run syncronizer {:?} error: {}",
+                        syncronizer.name, err
+                    );
+                }
+            }
+
+            thread::sleep(sleep_duration);
+        }
+    });
 }
 
 fn setup_socket(socket: &TcpStream) {
     socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
 }
 
-enum ConnectAction {
-    FullQuery,
-    SendList(Vec<DirectoryEntry>),
-}
+fn connect_to_server(server_uid: u32) -> Client {
+    let db_conn = open_db_connection();
 
-fn connect_to_client(addr: SocketAddr, action: ConnectAction) -> Client {
+    let addr = get_server_address_for_uid(&db_conn, server_uid);
+
     let socket = TcpStream::connect(addr).expect("Failed to connect to client"); // TODO: propagate error
 
     setup_socket(&socket);
 
-    Client::new(socket)
+    Client::new(socket, db_conn)
 }
 
-fn start_handle_loop(mut client: Client) {  //TODO: rename functions
-    std::thread::spawn(move || {
+fn start_handle_loop(client: Client) {
+    thread::spawn(move || {
         if let Err(error) = handle_connection(client) {
             println!("error: {}", error);
         }
@@ -400,7 +492,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             client.state = State::Responding;
 
-            client.push_to_send_queue(get_all_entries(&client.db_con));
+            client.push_entries_to_send_queue(get_all_entries(&client.db_con));
 
             client.send_queue_entry()
         }
@@ -443,11 +535,11 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             if client.state != State::Idle {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
-            get_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap().to_owned());
+            let entries = get_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
 
             client.state = State::Responding;
 
-            client.push_to_send_queue(get_all_entries(&client.db_con));
+            client.push_entries_to_send_queue(entries);
 
             client.send_queue_entry()
         }
@@ -457,8 +549,8 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
     }
 }
 
-fn full_query(addr: SocketAddr) {
-    let mut client = connect_to_client(addr, ConnectAction::FullQuery);
+fn full_query_for_server(server_uid: u32) {
+    let mut client = connect_to_server(server_uid);
 
     client.state = State::Accepting;
 
@@ -472,16 +564,12 @@ fn full_query(addr: SocketAddr) {
     start_handle_loop(client);
 }
 
-fn send_queue(addr: SocketAddr) {
-    let list: Vec<DirectoryEntry> = get_queue(addr);
-
-    // TODO: delete queue entries, as they are transmitted
-
-    let mut client = connect_to_client(addr, ConnectAction::SendList(list));
+fn send_queue_for_server(server_uid: u32) {
+    let mut client = connect_to_server(server_uid);
 
     client.state = State::Responding;
 
-    client.push_to_send_queue(list);
+    client.push_to_send_queue(get_queue_for_server(&client.db_con, server_uid));
 
     client
         .send_package(Package::Type6(PackageData6 {
@@ -491,4 +579,25 @@ fn send_queue(addr: SocketAddr) {
         .unwrap();
 
     start_handle_loop(client);
+}
+
+fn full_query(conn: &rusqlite::Connection) -> Result<(), String> {
+    let servers = get_server_uids(conn);
+
+    for server in servers {
+        full_query_for_server(server);
+    }
+
+    Ok(()) //TODO
+}
+fn send_queue(conn: &rusqlite::Connection) -> Result<(), String> {
+    update_queue(&conn)?;
+
+    let servers = get_server_uids(conn);
+
+    for server in servers {
+        send_queue_for_server(server);
+    }
+
+    Ok(()) //TODO
 }

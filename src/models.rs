@@ -59,7 +59,7 @@ pub struct QueueEntry {
 
 pub struct ServersEntry {
     pub uid: u64,
-    pub address: String,
+    pub ip_address: u32,
     pub version: u8,
     pub port: u16,
 }
