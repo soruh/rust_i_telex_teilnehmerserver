@@ -206,11 +206,11 @@ fn start_server_sync_thread() {
 
         impl Syncronizer {
             fn update(&mut self, conn: &rusqlite::Connection) -> Result<(), String> {
-                println!("running syncronizer {:?}", self.name);
                 let now = Instant::now();
 
                 if now >= self.last_sync + self.sync_interval {
                     self.last_sync = now;
+
                     (self.action)(conn)
                 } else {
                     Ok(())
