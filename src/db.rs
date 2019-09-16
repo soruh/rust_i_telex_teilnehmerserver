@@ -130,6 +130,7 @@ pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
 }
 
 pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipaddress: u32) -> bool {
+    println!("registering new entry: number={}", number);
     conn.execute(
         "INSERT INTO directory (name, timestamp, changed, connection_type, extension, disabled, number, pin, port, ipaddress) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         params!["?", get_current_itelex_timestamp(), 1, 5, 0, 1, number, pin, port, ipaddress],
@@ -139,6 +140,7 @@ pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipadd
 }
 
 pub fn update_entry_address(conn: &Connection, port: u16, ipaddress: u32, number: u32) -> bool {
+    println!("updating entry address: number={}", number);
     conn.execute(
         "UPDATE directory SET port=?, ipaddress=? WHERE number=?;",
         params![port, ipaddress, number],
@@ -173,6 +175,8 @@ pub fn upsert_entry(
     disabled: bool,
     new_timestamp: u32,
 ) -> bool {
+    println!("upserting entry: number={}", number);
+
     let timestamp: rusqlite::Result<u32> = conn.query_row(
         "SELECT timestamp FROM directory WHERE number=?;",
         params!(number),
