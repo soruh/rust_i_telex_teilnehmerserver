@@ -140,12 +140,7 @@ pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipadd
 
 pub fn update_entry_address(conn: &Connection, port: u16, ipaddress: u32, number: u32) -> bool {
     conn.execute(
-        "UPDATE directory SET
-            port=?,
-            ipaddress=?,
-        WHERE
-            number=?,
-        ;",
+        "UPDATE directory SET port=?, ipaddress=? WHERE number=?;",
         params![port, ipaddress, number],
     )
     .unwrap()
@@ -283,7 +278,7 @@ pub fn get_queue_for_server(
         let message: u32 = row.get(0).unwrap();
         let uid: u32 = row.get(1).unwrap();
 
-        let entry = get_entries(conn, "WHERE uid=?;", params![message])
+        let entry = get_entries(conn, "WHERE uid=?", params![message])
             .pop()
             .unwrap();
         queue.push((entry, Some(uid)));

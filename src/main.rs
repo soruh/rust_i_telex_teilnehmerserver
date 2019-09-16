@@ -457,7 +457,19 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             client.send_package(Package::Type2(PackageData2 { ipaddress }))
         }
         // Package::Type2(package) => {}
-        // Package::Type3(package) => {}
+        Package::Type3(package) => {
+            if client.state != State::Idle {
+                return Err(format!("invalid client state: {:?}", client.state));
+            }
+
+            let entry = get_entry_by_number(&client.db_con, package.number);
+
+            if let Some(entry) = entry {
+                client.send_package(Package::Type5(PackageData5::from(entry)))
+            } else {
+                client.send_package(Package::Type4(PackageData4 {}))
+            }
+        }
         // Package::Type4(_package) => {}
         Package::Type5(package) => {
             if client.state != State::Accepting {
