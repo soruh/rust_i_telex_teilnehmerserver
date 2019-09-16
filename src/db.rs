@@ -312,7 +312,7 @@ pub fn remove_queue_entry(conn: &Connection, queue_uid: u32) {
 pub fn get_server_uids(conn: &Connection) -> Vec<u32> {
     let mut stmt = conn.prepare("SELECT uid FROM servers;").unwrap();
 
-    stmt.query_map(NO_PARAMS, |row| Ok(row.get(0).unwrap()))
+    stmt.query_map(NO_PARAMS, |row| row.get(0))
         .unwrap()
         .map(|res| res.unwrap())
         .collect()
@@ -323,7 +323,7 @@ pub fn get_changed_entry_uids(conn: &Connection) -> Vec<u32> {
         .prepare("SELECT uid FROM directory WHERE changed=1;")
         .unwrap();
 
-    stmt.query_map(NO_PARAMS, |row| Ok(row.get(0).unwrap()))
+    stmt.query_map(NO_PARAMS, |row| row.get(0))
         .unwrap()
         .map(|res| res.unwrap())
         .collect()
