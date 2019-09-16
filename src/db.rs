@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub fn create_tables(conn: &Connection) {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS queue (
-            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            uid INTEGER NOT NULL PRIMARY KEY,
             server INTEGER unsigned NOT NULL,
             message INTEGER unsigned NOT NULL,
             timestamp INT unsigned NOT NULL
@@ -16,7 +16,7 @@ pub fn create_tables(conn: &Connection) {
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS servers (
-            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            uid INTEGER NOT NULL PRIMARY KEY,
             ip_address unsigned INT NOT NULL,
             version TINYINT unsigned NOT NULL,
             port SMALLINT unsigned NOT NULL
@@ -27,7 +27,7 @@ pub fn create_tables(conn: &Connection) {
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS directory (
-            uid BIGINT unsigned AUTO_INCREMENT PRIMARY KEY,
+            uid INTEGER NOT NULL PRIMARY KEY,
             number int unsigned NOT NULL UNIQUE,
             name VARCHAR(40) NOT NULL,
             connection_type TINYINT unsigned NOT NULL,
