@@ -315,7 +315,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
 fn string_to_n_bytes(input: CString, n: usize) -> Vec<u8> {
     let mut buf = input.into_bytes(); // data without nul
 
-    buf.truncate(n - 1); // leave space for a nul
+    buf.truncate(n - 1); // leave space for at least one nul
 
     buf.extend(vec![0u8; n - buf.len()]); // fill buffer up to `n` with 0u8
 
