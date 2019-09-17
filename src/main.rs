@@ -9,6 +9,10 @@ use rusqlite::OpenFlags;
 #[macro_use]
 extern crate lazy_static;
 
+extern crate failure;
+#[macro_use]
+extern crate failure_derive;
+
 pub mod models;
 
 pub mod db;
@@ -430,24 +434,32 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             let entry = get_entry_by_number(&client.db_con, package.number);
 
-            if let Some(entry) = entry {
-                if package.pin == entry.pin {
-                    update_entry_address(
-                        &client.db_con,
-                        package.port,
-                        u32::from(ipaddress),
-                        package.number,
-                    );
+            let should_register = if let Some(entry) = entry {
+                if entry.connection_type == 0 {
+                    true
+                } else if package.pin == entry.pin {
+                    false
                 } else {
                     return Err(String::from("wrong pin"));
                 }
             } else {
+                true
+            };
+
+            if should_register {
                 register_entry(
                     &client.db_con,
                     package.number,
                     package.pin,
                     package.port,
                     u32::from(ipaddress),
+                );
+            } else {
+                update_entry_address(
+                    &client.db_con,
+                    package.port,
+                    u32::from(ipaddress),
+                    package.number,
                 );
             }
 
