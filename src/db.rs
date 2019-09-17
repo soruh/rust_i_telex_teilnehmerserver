@@ -361,7 +361,7 @@ pub fn get_public_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Di
     for (i, word) in pattern.split_ascii_whitespace().enumerate() {
         println!("i: {}, word: {:?}", i, word);
         if i == 0 {
-            condition.push_str("WHERE name LIKE ")
+            condition.push_str("name LIKE ")
         } else {
             condition.push_str(" OR LIKE ")
         }
@@ -387,8 +387,8 @@ pub fn get_entry_by_number(
     truncate_privates: bool,
 ) -> Option<DirectoryEntry> {
     if truncate_privates {
-        get_public_entries(&conn, "WHERE number=?", params!(number), Some(1)).pop()
+        get_public_entries(&conn, "number=?", params!(number), Some(1)).pop()
     } else {
-        get_entries(&conn, "WHERE number=?", params!(number), Some(1)).pop()
+        get_entries(&conn, "number=?", params!(number), Some(1)).pop()
     }
 }
