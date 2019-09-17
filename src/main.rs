@@ -432,7 +432,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                 Err(String::from("client does not have an ipv4 address"))
             }?;
 
-            let entry = get_entry_by_number(&client.db_con, package.number);
+            let entry = get_entry_by_number(&client.db_con, package.number, false);
 
             let should_register = if let Some(entry) = entry {
                 if entry.connection_type == 0 {
@@ -471,7 +471,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
 
-            let entry = get_entry_by_number(&client.db_con, package.number);
+            let entry = get_entry_by_number(&client.db_con, package.number, true);
 
             if let Some(entry) = entry {
                 client.send_package(Package::Type5(PackageData5::from(entry)))
@@ -557,7 +557,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             if client.state != State::Idle {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
-            let entries = get_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
+            let entries = get_public_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
 
             client.state = State::Responding;
 
@@ -612,6 +612,7 @@ fn full_query(conn: &rusqlite::Connection) -> Result<(), String> {
 
     Ok(()) //TODO
 }
+
 fn send_queue(conn: &rusqlite::Connection) -> Result<(), String> {
     update_queue(&conn)?;
 

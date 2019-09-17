@@ -45,12 +45,17 @@ pub fn create_tables(conn: &Connection) {
     .expect("failed to create 'directory' table");
 }
 
-pub fn get_entries<'a, P>(conn: &'a Connection, condition: &str, params: P) -> Vec<DirectoryEntry>
+pub fn get_entries<'a, P>(
+    conn: &'a Connection,
+    condition: &str,
+    params: P,
+    limit: Option<usize>,
+) -> Vec<DirectoryEntry>
 where
     P: IntoIterator,
     P::Item: rusqlite::ToSql,
 {
-    let mut query = String::from("SELECT uid, number, name, connection_type, hostname, ipaddress, port, extension, pin, disabled, timestamp, changed FROM directory ");
+    let mut query = String::from("SELECT uid, number, name, connection_type, hostname, ipaddress, port, extension, pin, disabled, timestamp, changed FROM directory WHERE");
     query.push_str(condition);
     query.push_str(";");
 
@@ -73,25 +78,18 @@ where
                 changed: row.get_unwrap(11),
             })
         })
-        .unwrap();
+        .unwrap()
+        .map(|row| row.unwrap());
 
-    let mut entries = Vec::new();
-
-    for entry in entry_iter {
-        entries.push(entry.unwrap());
+    if let Some(limit) = limit {
+        entry_iter.take(limit).collect()
+    } else {
+        entry_iter.collect()
     }
-
-    println!("got entries from db: {:#?}", entries);
-
-    entries
-}
-
-pub fn get_entry_by_number(conn: &Connection, number: u32) -> Option<DirectoryEntry> {
-    get_entries(&conn, "WHERE number=?", params!(number)).pop()
 }
 
 pub fn get_all_entries(conn: &Connection) -> Vec<DirectoryEntry> {
-    get_entries(&conn, "", NO_PARAMS)
+    get_entries(&conn, "true", NO_PARAMS, None)
 }
 
 pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
@@ -241,33 +239,6 @@ pub fn upsert_entry(
     }
 }
 
-pub fn get_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<DirectoryEntry> {
-    let mut condition = String::from("");
-
-    let mut params = Vec::new();
-    for (i, word) in pattern.split_ascii_whitespace().enumerate() {
-        println!("i: {}, word: {:?}", i, word);
-        if i == 0 {
-            condition.push_str("WHERE name LIKE ")
-        } else {
-            condition.push_str(" OR LIKE ")
-        }
-        condition.push_str("?");
-
-        let mut word_wildcard = String::with_capacity(word.len() + 2);
-
-        word_wildcard.push_str("%");
-        word_wildcard.push_str(word);
-        word_wildcard.push_str("%");
-
-        params.push(word_wildcard);
-    }
-
-    println!("pattern: {:?}, params: {:?}", condition, params);
-
-    get_entries(&conn, condition.as_ref(), &params)
-}
-
 pub fn get_queue_for_server(
     conn: &Connection,
     server_uid: u32,
@@ -283,7 +254,7 @@ pub fn get_queue_for_server(
         let message: u32 = row.get(0).unwrap();
         let uid: u32 = row.get(1).unwrap();
 
-        let entry = get_entries(conn, "WHERE uid=?", params![message])
+        let entry = get_entries(conn, "uid=?", params![message], Some(1))
             .pop()
             .unwrap();
         queue.push((entry, Some(uid)));
@@ -359,4 +330,65 @@ pub fn prune_old_queue_entries(conn: &Connection) -> Result<(), String> {
     .unwrap();
 
     Ok(()) //TODO
+}
+
+pub fn get_public_entries<'a, P>(
+    conn: &'a Connection,
+    condition: &str,
+    params: P,
+    limit: Option<usize>,
+) -> Vec<DirectoryEntry>
+where
+    P: IntoIterator,
+    P::Item: rusqlite::ToSql,
+{
+    let mut new_condition =
+        String::from("deleted == 0 AND disabled != 0 AND connection_type != 0 AND ");
+    new_condition.push_str(condition);
+
+    let mut entries = get_entries(&conn, &new_condition, params, limit);
+    for entry in &mut entries {
+        entry.pin = 0;
+    }
+
+    entries
+}
+
+pub fn get_public_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<DirectoryEntry> {
+    let mut condition = String::from("");
+
+    let mut params = Vec::new();
+    for (i, word) in pattern.split_ascii_whitespace().enumerate() {
+        println!("i: {}, word: {:?}", i, word);
+        if i == 0 {
+            condition.push_str("WHERE name LIKE ")
+        } else {
+            condition.push_str(" OR LIKE ")
+        }
+        condition.push_str("?");
+
+        let mut word_wildcard = String::with_capacity(word.len() + 2);
+
+        word_wildcard.push_str("%");
+        word_wildcard.push_str(word);
+        word_wildcard.push_str("%");
+
+        params.push(word_wildcard);
+    }
+
+    println!("pattern: {:?}, params: {:?}", condition, params);
+
+    get_public_entries(&conn, condition.as_ref(), &params, None)
+}
+
+pub fn get_entry_by_number(
+    conn: &Connection,
+    number: u32,
+    truncate_privates: bool,
+) -> Option<DirectoryEntry> {
+    if truncate_privates {
+        get_public_entries(&conn, "WHERE number=?", params!(number), Some(1)).pop()
+    } else {
+        get_entries(&conn, "WHERE number=?", params!(number), Some(1)).pop()
+    }
 }
