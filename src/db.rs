@@ -252,9 +252,11 @@ pub fn get_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Directory
         } else {
             condition.push_str(" OR LIKE ")
         }
-        condition.push_str("%?%");
+        condition.push_str("?");
 
+        params.push("%");
         params.push(word);
+        params.push("%");
     }
 
     println!("pattern: {:?}, params: {:?}", condition, params);
