@@ -434,34 +434,36 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             let entry = get_entry_by_number(&client.db_con, package.number, false);
 
-            let should_register = if let Some(entry) = entry {
+            if let Some(entry) = entry {
                 if entry.connection_type == 0 {
-                    true
+                    register_entry(
+                        &client.db_con,
+                        package.number,
+                        package.pin,
+                        package.port,
+                        u32::from(ipaddress),
+                        true,
+                    );
                 } else if package.pin == entry.pin {
-                    false
+                    update_entry_address(
+                        &client.db_con,
+                        package.port,
+                        u32::from(ipaddress),
+                        package.number,
+                    );
                 } else {
                     return Err(String::from("wrong pin"));
                 }
             } else {
-                true
-            };
-
-            if should_register {
                 register_entry(
                     &client.db_con,
                     package.number,
                     package.pin,
                     package.port,
                     u32::from(ipaddress),
+                    false,
                 );
-            } else {
-                update_entry_address(
-                    &client.db_con,
-                    package.port,
-                    u32::from(ipaddress),
-                    package.number,
-                );
-            }
+            };
 
             client.send_package(Package::Type2(PackageData2 { ipaddress }))
         }
@@ -557,7 +559,8 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             if client.state != State::Idle {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
-            let entries = get_public_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
+            let entries =
+                get_public_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
 
             client.state = State::Responding;
 

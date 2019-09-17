@@ -89,7 +89,7 @@ where
 }
 
 pub fn get_all_entries(conn: &Connection) -> Vec<DirectoryEntry> {
-    get_entries(&conn, "true", NO_PARAMS, None)
+    get_entries(&conn, "1", NO_PARAMS, None)
 }
 
 pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
@@ -127,8 +127,21 @@ pub fn create_entry(conn: &Connection, entry: &DirectoryEntry) -> bool {
         > 0
 }
 
-pub fn register_entry(conn: &Connection, number: u32, pin: u16, port: u16, ipaddress: u32) -> bool {
+pub fn register_entry(
+    conn: &Connection,
+    number: u32,
+    pin: u16,
+    port: u16,
+    ipaddress: u32,
+    overwrite: bool,
+) -> bool {
     println!("registering new entry: number={}", number);
+    if overwrite {
+        println!("deleting old entry: number={}", number);
+
+        conn.execute("DELETE FROM directory WHERE number=?;", params![number])
+            .unwrap();
+    }
     conn.execute(
         "INSERT INTO directory (name, timestamp, changed, connection_type, extension, disabled, number, pin, port, ipaddress) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         params!["?", get_current_itelex_timestamp(), 1, 5, 0, 1, number, pin, port, ipaddress],
