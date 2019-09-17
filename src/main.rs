@@ -376,7 +376,7 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
         unimplemented!("send response");
     }
 
-    client.shutdown();
+    client.shutdown()?;
 
     Ok(())
 }
