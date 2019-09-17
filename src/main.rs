@@ -377,7 +377,37 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
 
         println!("parsed number: '{}'", number);
 
-        unimplemented!("send response");
+        let entry = get_entry_by_number(&client.db_con, number, true);
+
+        let message = if let Some(entry) = entry {
+            let host_or_ip = if let Some(hostname) = entry.hostname {
+                hostname
+            } else {
+                let ipaddress = entry
+                    .ipaddress
+                    .expect("database is incosistent: entry has neither hostname nor ipaddress");
+
+                format!("{}", Ipv4Addr::from(ipaddress))
+            };
+
+            format!(
+                "ok\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n+++\r\n",
+                entry.number,
+                entry.name,
+                entry.connection_type,
+                host_or_ip,
+                entry.port,
+                entry.extension // TODO: use weird conversion?
+            )
+        } else {
+            format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)
+        };
+
+        client
+            .write(message.as_bytes())
+            .map_err(|_| "failed to send response")?;
+    } else {
+        return Err("invalid package".into());
     }
 
     client.shutdown().expect("failed to shutdown socket");
