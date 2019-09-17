@@ -355,8 +355,7 @@ where
     P: IntoIterator,
     P::Item: rusqlite::ToSql,
 {
-    let mut new_condition =
-        String::from("deleted == 0 AND disabled != 0 AND connection_type != 0 AND ");
+    let mut new_condition = String::from("connection_type!=0 AND disabled=0 AND ");
     new_condition.push_str(condition);
 
     let mut entries = get_entries(&conn, &new_condition, params, limit);
