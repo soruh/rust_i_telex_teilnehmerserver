@@ -9,9 +9,14 @@ use rusqlite::OpenFlags;
 #[macro_use]
 extern crate lazy_static;
 
-extern crate failure;
-#[macro_use]
 extern crate failure_derive;
+
+extern crate failure;
+
+use failure::{format_err, Error, ResultExt};
+
+pub mod errors;
+use errors::*;
 
 pub mod models;
 
@@ -39,21 +44,21 @@ const DB_PATH: &str = "./database.db";
 //TODO: use env / .env file
 
 #[derive(Debug, PartialEq, Eq)]
-enum Mode {
+pub enum Mode {
     Ascii,
     Binary,
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum State {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
     Idle,
     Responding,
     Accepting,
     Shutdown,
 }
 
-struct Client {
+pub struct Client {
     socket: TcpStream,
 
     mode: Mode,
@@ -83,7 +88,7 @@ impl Write for Client {
 fn open_db_connection() -> rusqlite::Connection {
     let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
 
-    rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).unwrap()
+    rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).expect("failed to open database")
 }
 
 impl Client {
@@ -100,11 +105,12 @@ impl Client {
         }
     }
 
-    fn send_package(&mut self, package: Package) -> Result<(), String> {
+    fn send_package(&mut self, package: Package) -> Result<(), Error> {
         println!("sending package: {:#?}", package);
         self.write(serialize(package).as_slice())
-            .map(|_res| ())
-            .map_err(|_err| "failed to send Package".into())
+            .context(MyErrorKind::FailedToWrite)?;
+
+        Ok(())
     }
 
     fn shutdown(&mut self) -> std::result::Result<(), std::io::Error> {
@@ -124,12 +130,9 @@ impl Client {
         }
     }
 
-    fn send_queue_entry(&mut self) -> Result<(), String> {
+    fn send_queue_entry(&mut self) -> Result<(), Error> {
         if self.state != State::Responding {
-            return Err(format!(
-                "not in responding state. current state={:?}",
-                self.state
-            ));
+            Err(MyErrorKind::InvalidState(State::Responding, self.state))?;
         }
 
         let len = self.send_queue.len();
@@ -205,11 +208,11 @@ fn start_server_sync_thread() {
             name: String,
             last_sync: Instant,
             sync_interval: Duration,
-            action: fn(&rusqlite::Connection) -> Result<(), String>,
+            action: fn(&rusqlite::Connection) -> Result<(), Error>,
         }
 
         impl Syncronizer {
-            fn update(&mut self, conn: &rusqlite::Connection) -> Result<(), String> {
+            fn update(&mut self, conn: &rusqlite::Connection) -> Result<(), Error> {
                 let now = Instant::now();
 
                 if now >= self.last_sync + self.sync_interval {
@@ -292,7 +295,7 @@ fn start_handle_loop(client: Client) {
     });
 }
 
-fn handle_connection(mut client: Client) -> Result<(), String> {
+fn handle_connection(mut client: Client) -> Result<(), Error> {
     println!("new connection: {}", client.socket.peer_addr().unwrap());
 
     peek_client_type(&mut client)?;
@@ -307,14 +310,16 @@ fn handle_connection(mut client: Client) -> Result<(), String> {
     Ok(())
 }
 
-fn peek_client_type(client: &mut Client) -> Result<(), String> {
+fn peek_client_type(client: &mut Client) -> Result<(), Error> {
     assert_eq!(client.mode, Mode::Unknown);
 
     let mut buf = [0u8; 1];
-    let len = client.socket.peek(&mut buf).unwrap(); // read the first byte
+    let len = client
+        .socket
+        .peek(&mut buf)
+        .context(MyErrorKind::ConnectionCloseUnexpected)?; // read the first byte
     if len == 0 {
-        // the connection was closed before any data could be read
-        return Err("Connection closed by remote".into());
+        Err(MyErrorKind::ConnectionCloseUnexpected)?;
     }
 
     let [first_byte] = buf;
@@ -330,7 +335,7 @@ fn peek_client_type(client: &mut Client) -> Result<(), String> {
     Ok(())
 }
 
-fn consume_package(client: &mut Client) -> Result<(), String> {
+fn consume_package(client: &mut Client) -> Result<(), Error> {
     assert_ne!(client.mode, Mode::Unknown);
 
     if client.mode == Mode::Binary {
@@ -340,10 +345,10 @@ fn consume_package(client: &mut Client) -> Result<(), String> {
     }
 }
 
-fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
+fn consume_package_ascii(client: &mut Client) -> Result<(), Error> {
     let mut line = String::new();
     for byte in client.bytes() {
-        let byte = byte.map_err(|_| String::from("failed to read byte"))? as char;
+        let byte = byte? as char;
 
         if byte == '\n' {
             break;
@@ -355,6 +360,10 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
     let line = line.trim();
 
     println!("full line: {}", line);
+
+    if line.len() == 0 {
+        Err(MyErrorKind::UserInputError)?;
+    }
 
     if line.chars().nth(0).unwrap() == 'q' {
         let mut number = String::new();
@@ -369,11 +378,10 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
 
         println!("handling 'q' request");
 
-        let number = if let Ok(number) = number.as_str().parse::<u32>() {
-            number
-        } else {
-            return Err("failed to parse number".into());
-        };
+        let number = number
+            .as_str()
+            .parse::<u32>()
+            .context(MyErrorKind::UserInputError)?;
 
         println!("parsed number: '{}'", number);
 
@@ -405,21 +413,21 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
 
         client
             .write(message.as_bytes())
-            .map_err(|_| "failed to send response")?;
+            .context(MyErrorKind::FailedToWrite)?;
     } else {
-        return Err("invalid package".into());
+        Err(MyErrorKind::UserInputError)?;
     }
 
-    client.shutdown().expect("failed to shutdown socket");
+    client.shutdown()?;
 
     Ok(())
 }
 
-fn consume_package_binary(client: &mut Client) -> Result<(), String> {
+fn consume_package_binary(client: &mut Client) -> Result<(), Error> {
     let mut header = [0u8; 2];
     client
         .read_exact(&mut header)
-        .map_err(|err| format!("failed to read package header. error: {:?}", err))?;
+        .context(MyErrorKind::ConnectionCloseUnexpected)?;
 
     println!("header: {:?}", header);
 
@@ -428,7 +436,7 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
     let mut body = vec![0u8; package_length as usize];
     client
         .read_exact(&mut body)
-        .map_err(|_| String::from("failed to read package body"))?;
+        .context(MyErrorKind::ConnectionCloseUnexpected)?;
 
     println!(
         "got package of type: {} with length: {}",
@@ -446,12 +454,12 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
+fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
     println!("state: '{:?}'", client.state);
     match package {
         Package::Type1(package) => {
             if client.state != State::Idle {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
             }
 
             let peer_addr = client.socket.peer_addr().unwrap();
@@ -459,7 +467,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
             let ipaddress = if let IpAddr::V4(ipaddress) = peer_addr.ip() {
                 Ok(ipaddress)
             } else {
-                Err(String::from("client does not have an ipv4 address"))
+                Err(MyErrorKind::UserInputError)
             }?;
 
             let entry = get_entry_by_number(&client.db_con, package.number, false);
@@ -482,7 +490,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                         package.number,
                     );
                 } else {
-                    return Err(String::from("wrong pin"));
+                    Err(MyErrorKind::UserInputError)?;
                 }
             } else {
                 register_entry(
@@ -500,7 +508,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
         // Package::Type2(package) => {}
         Package::Type3(package) => {
             if client.state != State::Idle {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
             }
 
             let entry = get_entry_by_number(&client.db_con, package.number, true);
@@ -514,7 +522,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
         // Package::Type4(_package) => {}
         Package::Type5(package) => {
             if client.state != State::Accepting {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Accepting, client.state))?;
             }
 
             let new_entry = DirectoryEntry::from(package);
@@ -536,13 +544,13 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
         }
         Package::Type6(package) => {
             if package.version != 1 {
-                return Err(format!("invalid package version: {}", package.version));
+                Err(MyErrorKind::UserInputError)?;
             }
             if package.server_pin != SERVER_PIN {
-                return Err(String::from("invalid serverpin"));
+                Err(MyErrorKind::UserInputError)?;
             }
             if client.state != State::Idle {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
             }
 
             client.state = State::Responding;
@@ -553,13 +561,13 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
         }
         Package::Type7(package) => {
             if package.version != 1 {
-                return Err(format!("invalid package version: {}", package.version));
+                Err(MyErrorKind::UserInputError)?;
             }
             if package.server_pin != SERVER_PIN {
-                return Err(String::from("invalid serverpin"));
+                Err(MyErrorKind::UserInputError)?;
             }
             if client.state != State::Idle {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
             }
 
             client.state = State::Accepting;
@@ -568,27 +576,28 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
         }
         Package::Type8(_package) => {
             if client.state != State::Responding {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Responding, client.state))?;
             }
 
             client.send_queue_entry()
         }
         Package::Type9(_package) => {
             if client.state != State::Accepting {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Accepting, client.state))?;
             }
 
-            client
-                .shutdown()
-                .map_err(|err| format!("failed to shut down socket. {:?}", err))
+            client.shutdown()?;
+
+            Ok(())
         }
         Package::Type10(package) => {
             if package.version != 1 {
-                return Err(format!("invalid package version: {}", package.version));
+                Err(MyErrorKind::UserInputError)?;
             }
             if client.state != State::Idle {
-                return Err(format!("invalid client state: {:?}", client.state));
+                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
             }
+
             let entries =
                 get_public_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
 
@@ -598,9 +607,11 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
 
             client.send_queue_entry()
         }
-        Package::Type255(package) => Err(package.message.to_str().unwrap().to_owned()),
+        Package::Type255(package) => {
+            Err(format_err!("remote error: {:?}", package.message.to_str()?))
+        }
 
-        _ => Err("recieved invalid package".into()),
+        _ => Err(MyErrorKind::UserInputError)?,
     }
 }
 
@@ -636,7 +647,7 @@ fn send_queue_for_server(server_uid: u32) {
     start_handle_loop(client);
 }
 
-fn full_query(conn: &rusqlite::Connection) -> Result<(), String> {
+fn full_query(conn: &rusqlite::Connection) -> Result<(), Error> {
     let servers = get_server_uids(conn);
 
     for server in servers {
@@ -646,7 +657,7 @@ fn full_query(conn: &rusqlite::Connection) -> Result<(), String> {
     Ok(()) //TODO
 }
 
-fn send_queue(conn: &rusqlite::Connection) -> Result<(), String> {
+fn send_queue(conn: &rusqlite::Connection) -> Result<(), Error> {
     update_queue(&conn)?;
 
     let servers = get_server_uids(conn);

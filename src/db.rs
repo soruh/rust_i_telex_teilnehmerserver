@@ -1,6 +1,7 @@
 use crate::models::*;
 use rusqlite::{Connection, Row, NO_PARAMS};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use failure::Error;
 
 pub fn create_tables(conn: &Connection) {
     conn.execute(
@@ -318,7 +319,7 @@ pub fn get_changed_entry_uids(conn: &Connection) -> Vec<u32> {
         .collect()
 }
 
-pub fn update_queue(conn: &Connection) -> Result<(), String> {
+pub fn update_queue(conn: &Connection) -> Result<(), Error> {
     let servers = get_server_uids(&conn);
     let changed_entries = get_changed_entry_uids(&conn);
 
@@ -335,7 +336,7 @@ pub fn update_queue(conn: &Connection) -> Result<(), String> {
     Ok(()) //TODO
 }
 
-pub fn prune_old_queue_entries(conn: &Connection) -> Result<(), String> {
+pub fn prune_old_queue_entries(conn: &Connection) -> Result<(), Error> {
     conn.execute(
         "DELETE FROM queue WHERE timestamp > date('now', '+1 month');",
         NO_PARAMS,

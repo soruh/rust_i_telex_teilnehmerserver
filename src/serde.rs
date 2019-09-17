@@ -1,6 +1,8 @@
 pub use crate::packages::*;
 use nom::*;
 use std::io::Write;
+use failure::Error;
+use crate::errors::MyErrorKind;
 
 named!(
         _read_nul_terminated <&[u8], CString>,
@@ -114,7 +116,7 @@ fn parse_type_255(input: &[u8]) -> Result<(&[u8], Package), nom::Err<&[u8]>> {
     ))
 }
 
-pub fn deserialize(package_type: u8, input: &[u8]) -> Result<Package, String> {
+pub fn deserialize(package_type: u8, input: &[u8]) -> Result<Package, Error> {
     let data: Result<(&[u8], Package), nom::Err<&[u8]>> = match package_type {
         0x01 => parse_type_1(input),
         0x02 => parse_type_2(input),
@@ -128,19 +130,15 @@ pub fn deserialize(package_type: u8, input: &[u8]) -> Result<Package, String> {
         0x0A => parse_type_10(input),
         0xFF => parse_type_255(input),
 
-        _ => return Err("unrecognized package type".into()),
+        _ => Err(MyErrorKind::ParseFailure(package_type))?,
     };
 
-    let package = data
-        .map_err(|err| {
-            String::from(format!(
-                "failed to parse package (type {}): {}",
-                package_type, err
-            ))
-        })?
-        .1;
-
-    Ok(package)
+    if let Ok(data) = data {
+        Ok(data.1)
+    } else {
+        // TODO: do something with `error`?
+        Err(MyErrorKind::ParseFailure(package_type))?
+    }
 }
 
 // ! ################################################################################
