@@ -36,7 +36,7 @@ use crate::models::*;
 
 const SERVER_PIN: u32 = 42;
 const DB_PATH: &str = "./database.db";
-//TODO: use config files
+//TODO: use env / .env file
 
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {

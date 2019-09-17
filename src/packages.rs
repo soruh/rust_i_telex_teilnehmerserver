@@ -49,7 +49,7 @@ impl From<DirectoryEntry> for PackageData5 {
 
         let mut flags = 0u16;
         if entry.disabled {
-            flags &= 0x02;
+            flags |= 0x02;
         }
 
         PackageData5 {
