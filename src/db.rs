@@ -375,7 +375,7 @@ pub fn get_public_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Di
         if i == 0 {
             condition.push_str("name LIKE ")
         } else {
-            condition.push_str(" OR LIKE ")
+            condition.push_str(" OR name LIKE ")
         }
         condition.push_str("?");
 
