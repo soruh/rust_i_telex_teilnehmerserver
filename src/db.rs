@@ -254,7 +254,7 @@ pub fn get_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Directory
         }
         condition.push_str("?");
 
-        let word_wildcard = String::with_capacity(word.len() + 2);
+        let mut word_wildcard = String::with_capacity(word.len() + 2);
 
         word_wildcard.push_str("%");
         word_wildcard.push_str(word);
