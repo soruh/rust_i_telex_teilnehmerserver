@@ -184,7 +184,6 @@ pub fn upsert_entry(
     );
 
     let params = params![
-        number,
         name,
         connection_type,
         hostname,
@@ -194,6 +193,7 @@ pub fn upsert_entry(
         pin,
         disabled,
         new_timestamp,
+        number,
     ];
 
     println!(
@@ -204,19 +204,14 @@ pub fn upsert_entry(
     if let Ok(old_timestamp) = timestamp {
         if old_timestamp < new_timestamp {
             conn.execute(
-                "UPDATE directory SET
-                changed=1,
-                number=?,
-                name=?,
-                connection_type=?,
+                "UPDATE directory SET changed=1, name=?, connection_type=?,
                 hostname=?,
                 ipaddress=?,
                 port=?,
                 extension=?,
                 pin=?,
                 disabled=?,
-                timestamp=?
-            ;",
+                timestamp=? WHERE number=?;",
                 params,
             )
             .unwrap()
@@ -228,7 +223,6 @@ pub fn upsert_entry(
         conn.execute(
             "INSERT INTO directory (
                 changed,
-                number,
                 name,
                 connection_type,
                 hostname,
@@ -238,6 +232,7 @@ pub fn upsert_entry(
                 pin,
                 disabled,
                 timestamp
+                number,
             ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             params,
         )
@@ -257,7 +252,7 @@ pub fn get_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Directory
         } else {
             condition.push_str(" OR LIKE ")
         }
-        condition.push_str("?");
+        condition.push_str("%?%");
 
         params.push(word);
     }

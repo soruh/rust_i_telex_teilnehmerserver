@@ -53,7 +53,6 @@ struct Client {
     socket: TcpStream,
 
     mode: Mode,
-    parsing: bool,
 
     db_con: rusqlite::Connection,
 
@@ -89,7 +88,6 @@ impl Client {
             socket,
 
             mode: Mode::Unknown,
-            parsing: true,
 
             db_con,
 
@@ -106,7 +104,7 @@ impl Client {
     }
 
     fn shutdown(&mut self) -> std::result::Result<(), std::io::Error> {
-        self.parsing = false;
+        self.state = State::Shutdown;
         self.socket.shutdown(std::net::Shutdown::Both)
     }
 
@@ -298,7 +296,7 @@ fn handle_connection(mut client: Client) -> Result<(), String> {
 
     println!("client mode: {:?}", client.mode);
 
-    while client.parsing {
+    while client.state != State::Shutdown {
         consume_package(&mut client)?;
     }
 
@@ -378,7 +376,7 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), String> {
         unimplemented!("send response");
     }
 
-    client.parsing = false;
+    client.shutdown();
 
     Ok(())
 }
@@ -411,7 +409,6 @@ fn consume_package_binary(client: &mut Client) -> Result<(), String> {
     println!("parsed package: {:#?}", package);
     handle_package(client, package)?;
 
-    // client.parsing = true;
     Ok(())
 }
 
@@ -537,7 +534,6 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), String> {
                 return Err(format!("invalid client state: {:?}", client.state));
             }
 
-            client.state = State::Shutdown;
             client
                 .shutdown()
                 .map_err(|err| format!("failed to shut down socket. {:?}", err))
