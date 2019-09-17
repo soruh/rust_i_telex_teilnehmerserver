@@ -55,7 +55,7 @@ where
     P: IntoIterator,
     P::Item: rusqlite::ToSql,
 {
-    let mut query = String::from("SELECT uid, number, name, connection_type, hostname, ipaddress, port, extension, pin, disabled, timestamp, changed FROM directory WHERE");
+    let mut query = String::from("SELECT uid, number, name, connection_type, hostname, ipaddress, port, extension, pin, disabled, timestamp, changed FROM directory WHERE ");
     query.push_str(condition);
     query.push_str(";");
 
