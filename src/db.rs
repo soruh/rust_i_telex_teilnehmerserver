@@ -1,7 +1,7 @@
 use crate::models::*;
+use failure::Error;
 use rusqlite::{Connection, Row, NO_PARAMS};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use failure::Error;
 
 pub fn create_tables(conn: &Connection) {
     conn.execute(
@@ -243,7 +243,7 @@ pub fn upsert_entry(
                 extension,
                 pin,
                 disabled,
-                timestamp
+                timestamp,
                 number,
             ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             params,
