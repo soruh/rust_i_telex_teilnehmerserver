@@ -244,7 +244,7 @@ pub fn upsert_entry(
                 pin,
                 disabled,
                 timestamp,
-                number,
+                number
             ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             params,
         )

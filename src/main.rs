@@ -1,4 +1,3 @@
-extern crate crossbeam;
 extern crate dotenv;
 extern crate nom;
 
