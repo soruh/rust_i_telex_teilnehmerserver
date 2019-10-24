@@ -3,16 +3,14 @@ extern crate nom;
 
 #[macro_use]
 extern crate rusqlite;
+
+#[macro_use]
+extern crate anyhow;
+
 use rusqlite::OpenFlags;
 
 #[macro_use]
 extern crate lazy_static;
-
-extern crate failure_derive;
-
-extern crate failure;
-
-use failure::{format_err, Error, ResultExt};
 
 pub mod errors;
 use errors::*;
@@ -23,6 +21,7 @@ pub mod db;
 pub mod packages;
 pub mod serde;
 
+use anyhow::Context;
 use dotenv::dotenv;
 
 pub use crate::packages::*;
@@ -104,7 +103,7 @@ impl Client {
         }
     }
 
-    fn send_package(&mut self, package: Package) -> Result<(), Error> {
+    fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
         println!("sending package: {:#?}", package);
         self.write(serialize(package).as_slice())
             .context(MyErrorKind::FailedToWrite)?;
@@ -129,9 +128,9 @@ impl Client {
         }
     }
 
-    fn send_queue_entry(&mut self) -> Result<(), Error> {
+    fn send_queue_entry(&mut self) -> anyhow::Result<()> {
         if self.state != State::Responding {
-            Err(MyErrorKind::InvalidState(State::Responding, self.state))?;
+            bail!(MyErrorKind::InvalidState(State::Responding, self.state));
         }
 
         let len = self.send_queue.len();
@@ -207,11 +206,11 @@ fn start_server_sync_thread() {
             name: String,
             last_sync: Instant,
             sync_interval: Duration,
-            action: fn(&rusqlite::Connection) -> Result<(), Error>,
+            action: fn(&rusqlite::Connection) -> anyhow::Result<()>,
         }
 
         impl Syncronizer {
-            fn update(&mut self, conn: &rusqlite::Connection) -> Result<(), Error> {
+            fn update(&mut self, conn: &rusqlite::Connection) -> anyhow::Result<()> {
                 let now = Instant::now();
 
                 if now >= self.last_sync + self.sync_interval {
@@ -294,7 +293,7 @@ fn start_handle_loop(client: Client) {
     });
 }
 
-fn handle_connection(mut client: Client) -> Result<(), Error> {
+fn handle_connection(mut client: Client) -> anyhow::Result<()> {
     println!("new connection: {}", client.socket.peer_addr().unwrap());
 
     peek_client_type(&mut client)?;
@@ -309,7 +308,7 @@ fn handle_connection(mut client: Client) -> Result<(), Error> {
     Ok(())
 }
 
-fn peek_client_type(client: &mut Client) -> Result<(), Error> {
+fn peek_client_type(client: &mut Client) -> anyhow::Result<()> {
     assert_eq!(client.mode, Mode::Unknown);
 
     let mut buf = [0u8; 1];
@@ -318,7 +317,7 @@ fn peek_client_type(client: &mut Client) -> Result<(), Error> {
         .peek(&mut buf)
         .context(MyErrorKind::ConnectionCloseUnexpected)?; // read the first byte
     if len == 0 {
-        Err(MyErrorKind::ConnectionCloseUnexpected)?;
+        bail!(MyErrorKind::ConnectionCloseUnexpected);
     }
 
     let [first_byte] = buf;
@@ -334,7 +333,7 @@ fn peek_client_type(client: &mut Client) -> Result<(), Error> {
     Ok(())
 }
 
-fn consume_package(client: &mut Client) -> Result<(), Error> {
+fn consume_package(client: &mut Client) -> anyhow::Result<()> {
     assert_ne!(client.mode, Mode::Unknown);
 
     if client.mode == Mode::Binary {
@@ -344,7 +343,7 @@ fn consume_package(client: &mut Client) -> Result<(), Error> {
     }
 }
 
-fn consume_package_ascii(client: &mut Client) -> Result<(), Error> {
+fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
     let mut line = String::new();
     for byte in client.bytes() {
         let byte = byte? as char;
@@ -361,7 +360,7 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), Error> {
     println!("full line: {}", line);
 
     if line.len() == 0 {
-        Err(MyErrorKind::UserInputError)?;
+        bail!(MyErrorKind::UserInputError);
     }
 
     if line.chars().nth(0).unwrap() == 'q' {
@@ -414,7 +413,7 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), Error> {
             .write(message.as_bytes())
             .context(MyErrorKind::FailedToWrite)?;
     } else {
-        Err(MyErrorKind::UserInputError)?;
+        bail!(MyErrorKind::UserInputError);
     }
 
     client.shutdown()?;
@@ -422,7 +421,7 @@ fn consume_package_ascii(client: &mut Client) -> Result<(), Error> {
     Ok(())
 }
 
-fn consume_package_binary(client: &mut Client) -> Result<(), Error> {
+fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
     let mut header = [0u8; 2];
     client
         .read_exact(&mut header)
@@ -453,12 +452,12 @@ fn consume_package_binary(client: &mut Client) -> Result<(), Error> {
     Ok(())
 }
 
-fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
+fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
     println!("state: '{:?}'", client.state);
     match package {
         Package::Type1(package) => {
             if client.state != State::Idle {
-                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
             let peer_addr = client.socket.peer_addr().unwrap();
@@ -489,7 +488,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
                         package.number,
                     );
                 } else {
-                    Err(MyErrorKind::UserInputError)?;
+                    bail!(MyErrorKind::UserInputError);
                 }
             } else {
                 register_entry(
@@ -507,7 +506,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         // Package::Type2(package) => {}
         Package::Type3(package) => {
             if client.state != State::Idle {
-                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
             let entry = get_entry_by_number(&client.db_con, package.number, true);
@@ -521,7 +520,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         // Package::Type4(_package) => {}
         Package::Type5(package) => {
             if client.state != State::Accepting {
-                Err(MyErrorKind::InvalidState(State::Accepting, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Accepting, client.state));
             }
 
             let new_entry = DirectoryEntry::from(package);
@@ -543,13 +542,13 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         }
         Package::Type6(package) => {
             if package.version != 1 {
-                Err(MyErrorKind::UserInputError)?;
+                bail!(MyErrorKind::UserInputError);
             }
             if package.server_pin != SERVER_PIN {
-                Err(MyErrorKind::UserInputError)?;
+                bail!(MyErrorKind::UserInputError);
             }
             if client.state != State::Idle {
-                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
             client.state = State::Responding;
@@ -560,13 +559,13 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         }
         Package::Type7(package) => {
             if package.version != 1 {
-                Err(MyErrorKind::UserInputError)?;
+                bail!(MyErrorKind::UserInputError);
             }
             if package.server_pin != SERVER_PIN {
-                Err(MyErrorKind::UserInputError)?;
+                bail!(MyErrorKind::UserInputError);
             }
             if client.state != State::Idle {
-                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
             client.state = State::Accepting;
@@ -575,14 +574,14 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         }
         Package::Type8(_package) => {
             if client.state != State::Responding {
-                Err(MyErrorKind::InvalidState(State::Responding, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Responding, client.state));
             }
 
             client.send_queue_entry()
         }
         Package::Type9(_package) => {
             if client.state != State::Accepting {
-                Err(MyErrorKind::InvalidState(State::Accepting, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Accepting, client.state));
             }
 
             client.shutdown()?;
@@ -591,10 +590,10 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
         }
         Package::Type10(package) => {
             if package.version != 1 {
-                Err(MyErrorKind::UserInputError)?;
+                bail!(MyErrorKind::UserInputError);
             }
             if client.state != State::Idle {
-                Err(MyErrorKind::InvalidState(State::Idle, client.state))?;
+                bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
             let entries =
@@ -606,9 +605,7 @@ fn handle_package(client: &mut Client, package: Package) -> Result<(), Error> {
 
             client.send_queue_entry()
         }
-        Package::Type255(package) => {
-            Err(format_err!("remote error: {:?}", package.message.to_str()?))
-        }
+        Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message.to_str()?)),
 
         _ => Err(MyErrorKind::UserInputError)?,
     }
@@ -646,7 +643,7 @@ fn send_queue_for_server(server_uid: u32) {
     start_handle_loop(client);
 }
 
-fn full_query(conn: &rusqlite::Connection) -> Result<(), Error> {
+fn full_query(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     let servers = get_server_uids(conn);
 
     for server in servers {
@@ -656,7 +653,7 @@ fn full_query(conn: &rusqlite::Connection) -> Result<(), Error> {
     Ok(()) //TODO
 }
 
-fn send_queue(conn: &rusqlite::Connection) -> Result<(), Error> {
+fn send_queue(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     update_queue(&conn)?;
 
     let servers = get_server_uids(conn);

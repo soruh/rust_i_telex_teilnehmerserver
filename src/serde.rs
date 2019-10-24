@@ -1,8 +1,7 @@
+use crate::errors::MyErrorKind;
 pub use crate::packages::*;
 use nom::*;
 use std::io::Write;
-use failure::Error;
-use crate::errors::MyErrorKind;
 
 named!(
         _read_nul_terminated <&[u8], CString>,
@@ -116,7 +115,7 @@ fn parse_type_255(input: &[u8]) -> Result<(&[u8], Package), nom::Err<&[u8]>> {
     ))
 }
 
-pub fn deserialize(package_type: u8, input: &[u8]) -> Result<Package, Error> {
+pub fn deserialize(package_type: u8, input: &[u8]) -> anyhow::Result<Package> {
     let data: Result<(&[u8], Package), nom::Err<&[u8]>> = match package_type {
         0x01 => parse_type_1(input),
         0x02 => parse_type_2(input),
