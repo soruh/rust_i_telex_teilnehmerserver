@@ -44,7 +44,7 @@ impl From<PackageData5> for DirectoryEntry {
             extension: entry.extension,
             pin: entry.pin,
             disabled: (entry.flags & 0x02) != 0,
-            timestamp: entry.date,
+            timestamp: entry.timestamp,
             changed: true,
         }
     }

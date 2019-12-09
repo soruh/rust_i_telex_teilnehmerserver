@@ -11,6 +11,7 @@ dotenv = "0.14.1"
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
 thiserror = "1.0.2"
+async-std = "1.2.0"
 
 [dependencies.rusqlite]
 version = "0.20.0"

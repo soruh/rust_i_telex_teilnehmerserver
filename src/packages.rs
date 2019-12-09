@@ -1,25 +1,25 @@
 use crate::models::DirectoryEntry;
-pub use std::ffi::CString;
+pub use std::ffi::{CString, CStr};
 pub use std::net::Ipv4Addr;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData1 {
     pub number: u32,
     pub pin: u16,
     pub port: u16,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData2 {
     pub ipaddress: Ipv4Addr,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData3 {
     pub number: u32,
     pub version: u8,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData4 {}
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData5 {
     pub number: u32,
     pub name: CString,
@@ -30,7 +30,7 @@ pub struct PackageData5 {
     pub port: u16,
     pub extension: u8,
     pub pin: u16,
-    pub date: u32,
+    pub timestamp: u32,
 }
 
 impl From<DirectoryEntry> for PackageData5 {
@@ -62,36 +62,36 @@ impl From<DirectoryEntry> for PackageData5 {
             port: entry.port,
             extension: entry.extension,
             pin: entry.pin,
-            date: entry.timestamp,
+            timestamp: entry.timestamp,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData6 {
     pub version: u8,
     pub server_pin: u32,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData7 {
     pub version: u8,
     pub server_pin: u32,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData8 {}
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData9 {}
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData10 {
     pub version: u8,
     pub pattern: CString,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PackageData255 {
     pub message: CString,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Package {
     Type1(PackageData1),
     Type2(PackageData2),
