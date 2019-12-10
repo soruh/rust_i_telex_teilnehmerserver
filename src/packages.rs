@@ -1,5 +1,5 @@
 use crate::models::DirectoryEntry;
-pub use std::ffi::{CString, CStr};
+pub use std::ffi::{CStr, CString};
 pub use std::net::Ipv4Addr;
 
 #[derive(Debug, PartialEq, Eq, Clone)]

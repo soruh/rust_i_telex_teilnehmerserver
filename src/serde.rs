@@ -322,13 +322,13 @@ fn string_to_n_bytes(input: CString, n: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{serialize, deserialize};
+    use super::{deserialize, serialize};
     use crate::packages::*;
 
     fn test_both(package: Package, serialized: Vec<u8>) {
         let package_type = serialized[0];
         let package_length = serialized[1];
-        let package_data: &[u8] = &serialized[2..2+package_length as usize];
+        let package_data: &[u8] = &serialized[2..2 + package_length as usize];
 
         assert_eq!(
             deserialize(package_type, package_data).expect("deserialisation failed"),
@@ -480,7 +480,7 @@ mod tests {
     fn type_10() {
         let serialized: Vec<u8> = vec![
             // header:
-            10, 41, // / version:
+            10, 41,  // / version:
             240, // pattern:
             80, 97, 116, 116, 101, 114, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

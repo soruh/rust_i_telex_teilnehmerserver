@@ -1,3 +1,5 @@
+#![feature(async_closure)]
+
 extern crate dotenv;
 extern crate nom;
 
@@ -27,11 +29,15 @@ use dotenv::dotenv;
 pub use crate::packages::*;
 use serde::{deserialize, serialize};
 
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use std::thread;
+use futures::future::join_all;
+
+use async_std::{
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream},
+    prelude::*,
+    task,
+};
 
 use db::*;
 
@@ -57,7 +63,7 @@ pub enum State {
 }
 
 pub struct Client {
-    socket: TcpStream,
+    pub socket: TcpStream,
 
     mode: Mode,
 
@@ -65,22 +71,6 @@ pub struct Client {
 
     state: State,
     send_queue: Vec<(DirectoryEntry, Option<u32>)>,
-}
-
-impl Read for Client {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.socket.read(buf)
-    }
-}
-
-impl Write for Client {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.socket.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.socket.flush()
-    }
 }
 
 fn open_db_connection() -> rusqlite::Connection {
@@ -103,9 +93,11 @@ impl Client {
         }
     }
 
-    fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
+    async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
         println!("sending package: {:#?}", package);
-        self.write(serialize(package).as_slice())
+        self.socket
+            .write(serialize(package).as_slice())
+            .await
             .context(MyErrorKind::FailedToWrite)?;
 
         Ok(())
@@ -128,7 +120,7 @@ impl Client {
         }
     }
 
-    fn send_queue_entry(&mut self) -> anyhow::Result<()> {
+    async fn send_queue_entry(&mut self) -> anyhow::Result<()> {
         if self.state != State::Responding {
             bail!(MyErrorKind::InvalidState(State::Responding, self.state));
         }
@@ -144,7 +136,8 @@ impl Client {
         if let Some(entry) = self.send_queue.pop() {
             let (package, queue_uid) = entry;
 
-            self.send_package(Package::Type5(PackageData5::from(package)))?;
+            self.send_package(Package::Type5(PackageData5::from(package)))
+                .await?;
 
             if let Some(queue_uid) = queue_uid {
                 remove_queue_entry(&self.db_con, queue_uid);
@@ -152,12 +145,17 @@ impl Client {
 
             Ok(())
         } else {
-            self.send_package(Package::Type9(PackageData9 {}))
+            self.send_package(Package::Type9(PackageData9 {})).await?;
+
+            Ok(())
         }
     }
 }
 
 fn main() {
+    task::block_on(async_main());
+}
+async fn async_main() {
     dotenv().ok();
 
     // std::env::var("DATABASE_PATH").expect("failed to read 'DATABASE_PATH' from environment");s
@@ -178,17 +176,19 @@ fn main() {
 
     println!("database is initialized");
 
-    start_server_sync_thread();
+    start_server_sync();
 
     println!("started server sync thread");
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 11814));
 
-    let listener = TcpListener::bind(addr).unwrap();
+    let listener = TcpListener::bind(addr).await.unwrap();
     // TODO: use config
     println!("listening for connections on {}", addr);
 
-    for socket in listener.incoming() {
+    let mut incoming = listener.incoming();
+
+    while let Some(socket) = incoming.next().await {
         let socket = socket.unwrap();
 
         setup_socket(&socket);
@@ -200,83 +200,49 @@ fn main() {
     }
 }
 
-fn start_server_sync_thread() {
-    thread::spawn(move || {
-        struct Syncronizer {
-            name: String,
-            last_sync: Instant,
-            sync_interval: Duration,
-            action: fn(&rusqlite::Connection) -> anyhow::Result<()>,
-        }
-
-        impl Syncronizer {
-            fn update(&mut self, conn: &rusqlite::Connection) -> anyhow::Result<()> {
-                let now = Instant::now();
-
-                if now >= self.last_sync + self.sync_interval {
-                    self.last_sync = now;
-
-                    (self.action)(conn)
-                } else {
-                    Ok(())
-                }
-            }
-        }
-
-        let last_year = Instant::now() - Duration::new(60 * 60 * 24 * 365, 0);
-        // ? assume last sync was one year ago
-
-        let mut syncronizers = vec![
-            Syncronizer {
-                name: "prune_old_queue_entries".into(),
-                action: prune_old_queue_entries,
-                sync_interval: Duration::new(60 * 60 * 24 * 7, 0),
-                last_sync: last_year,
-            },
-            Syncronizer {
-                name: "full_query".into(),
-                action: full_query,
-                sync_interval: Duration::new(60 * 60 * 24, 0),
-                last_sync: last_year,
-            },
-            Syncronizer {
-                name: "send_queue".into(),
-                action: send_queue,
-                sync_interval: Duration::new(30, 0),
-                last_sync: last_year,
-            },
-        ];
-
-        let sleep_duration = Duration::new(60, 0);
-        // ? check if sync is neccessary every _minute_
-
-        let db_conn = open_db_connection();
-
+// TODO: rename
+fn start_server_sync() {
+    task::spawn((async || {
+        // let db_conn = open_db_connection();
         loop {
-            for syncronizer in &mut syncronizers {
-                if let Err(err) = syncronizer.update(&db_conn) {
-                    println!(
-                        "failed to run syncronizer {:?} error: {}",
-                        syncronizer.name, err
-                    );
-                }
-            }
-
-            thread::sleep(sleep_duration);
+            println!("calling `prune_old_queue_entries`");
+            // prune_old_queue_entries(&db_conn); //.await;
+            task::sleep(Duration::new(60 * 60 * 24 * 7, 0)).await;
         }
-    });
+    })());
+
+    task::spawn((async || {
+        // let db_conn = open_db_connection();
+        loop {
+            println!("calling `full_query`");
+            // full_query(&db_conn).await;
+            task::sleep(Duration::new(60 * 60 * 24, 0)).await;
+        }
+    })());
+
+    task::spawn((async || {
+        // let db_conn = open_db_connection();
+        loop {
+            println!("calling `send_queue`");
+            // send_queue(&db_conn).await;
+            task::sleep(Duration::new(30, 0)).await;
+        }
+    })());
 }
 
 fn setup_socket(socket: &TcpStream) {
-    socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
+    // TODO: fix read timeout
+    // socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
 }
 
-fn connect_to_server(server_uid: u32) -> Client {
+async fn connect_to_server(server_uid: u32) -> Client {
     let db_conn = open_db_connection();
 
     let addr = get_server_address_for_uid(&db_conn, server_uid);
 
-    let socket = TcpStream::connect(addr).expect("Failed to connect to client"); // TODO: propagate error
+    let socket = TcpStream::connect(addr)
+        .await
+        .expect("Failed to connect to client"); // TODO: propagate error
 
     setup_socket(&socket);
 
@@ -284,37 +250,38 @@ fn connect_to_server(server_uid: u32) -> Client {
 }
 
 fn start_handle_loop(client: Client) {
-    thread::spawn(move || {
-        if let Err(error) = handle_connection(client) {
+    task::spawn((async move || {
+        if let Err(error) = handle_connection(client).await {
             println!("error: {}", error);
         }
 
         println!("connection closed");
-    });
+    })());
 }
 
-fn handle_connection(mut client: Client) -> anyhow::Result<()> {
+async fn handle_connection(mut client: Client) -> anyhow::Result<()> {
     println!("new connection: {}", client.socket.peer_addr().unwrap());
 
-    peek_client_type(&mut client)?;
+    peek_client_type(&mut client).await?;
     debug_assert_ne!(client.mode, Mode::Unknown);
 
     println!("client mode: {:?}", client.mode);
 
     while client.state != State::Shutdown {
-        consume_package(&mut client)?;
+        consume_package(&mut client).await?;
     }
 
     Ok(())
 }
 
-fn peek_client_type(client: &mut Client) -> anyhow::Result<()> {
+async fn peek_client_type(client: &mut Client) -> anyhow::Result<()> {
     assert_eq!(client.mode, Mode::Unknown);
 
     let mut buf = [0u8; 1];
     let len = client
         .socket
         .peek(&mut buf)
+        .await
         .context(MyErrorKind::ConnectionCloseUnexpected)?; // read the first byte
     if len == 0 {
         bail!(MyErrorKind::ConnectionCloseUnexpected);
@@ -333,19 +300,21 @@ fn peek_client_type(client: &mut Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn consume_package(client: &mut Client) -> anyhow::Result<()> {
+async fn consume_package(client: &mut Client) -> anyhow::Result<()> {
     assert_ne!(client.mode, Mode::Unknown);
 
     if client.mode == Mode::Binary {
-        return consume_package_binary(client);
+        return consume_package_binary(client).await;
     } else {
-        return consume_package_ascii(client);
+        return consume_package_ascii(client).await;
     }
 }
 
-fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
+async fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
     let mut line = String::new();
-    for byte in client.bytes() {
+
+    let mut bytes = (&mut client.socket).bytes();
+    while let Some(byte) = bytes.next().await {
         let byte = byte? as char;
 
         if byte == '\n' {
@@ -410,7 +379,9 @@ fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
         };
 
         client
+            .socket
             .write(message.as_bytes())
+            .await
             .context(MyErrorKind::FailedToWrite)?;
     } else {
         bail!(MyErrorKind::UserInputError);
@@ -421,10 +392,12 @@ fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
+async fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
     let mut header = [0u8; 2];
     client
+        .socket
         .read_exact(&mut header)
+        .await
         .context(MyErrorKind::ConnectionCloseUnexpected)?;
 
     println!("header: {:?}", header);
@@ -433,7 +406,9 @@ fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
 
     let mut body = vec![0u8; package_length as usize];
     client
+        .socket
         .read_exact(&mut body)
+        .await
         .context(MyErrorKind::ConnectionCloseUnexpected)?;
 
     println!(
@@ -447,12 +422,12 @@ fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
 
     let package = deserialize(package_type, &body)?;
     println!("parsed package: {:#?}", package);
-    handle_package(client, package)?;
+    handle_package(client, package).await?;
 
     Ok(())
 }
 
-fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
+async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
     println!("state: '{:?}'", client.state);
     match package {
         Package::Type1(package) => {
@@ -501,7 +476,9 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
                 );
             };
 
-            client.send_package(Package::Type2(PackageData2 { ipaddress }))
+            client.send_package(Package::Type2(PackageData2 { ipaddress })).await?;
+
+            Ok(())
         }
         // Package::Type2(package) => {}
         Package::Type3(package) => {
@@ -512,10 +489,12 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
             let entry = get_entry_by_number(&client.db_con, package.number, true);
 
             if let Some(entry) = entry {
-                client.send_package(Package::Type5(PackageData5::from(entry)))
+                client.send_package(Package::Type5(PackageData5::from(entry))).await?;
             } else {
-                client.send_package(Package::Type4(PackageData4 {}))
+                client.send_package(Package::Type4(PackageData4 {})).await?;
             }
+
+            Ok(())
         }
         // Package::Type4(_package) => {}
         Package::Type5(package) => {
@@ -538,7 +517,9 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
                 new_entry.disabled,
                 new_entry.timestamp,
             );
-            client.send_package(Package::Type8(PackageData8 {}))
+            client.send_package(Package::Type8(PackageData8 {})).await?;
+
+            Ok(())
         }
         Package::Type6(package) => {
             if package.version != 1 {
@@ -555,7 +536,9 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
 
             client.push_entries_to_send_queue(get_all_entries(&client.db_con));
 
-            client.send_queue_entry()
+            client.send_queue_entry().await?;
+
+            Ok(())
         }
         Package::Type7(package) => {
             if package.version != 1 {
@@ -570,14 +553,18 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
 
             client.state = State::Accepting;
 
-            client.send_package(Package::Type8(PackageData8 {}))
+            client.send_package(Package::Type8(PackageData8 {})).await?;
+
+            Ok(())
         }
         Package::Type8(_package) => {
             if client.state != State::Responding {
                 bail!(MyErrorKind::InvalidState(State::Responding, client.state));
             }
 
-            client.send_queue_entry()
+            client.send_queue_entry().await?;
+
+            Ok(())
         }
         Package::Type9(_package) => {
             if client.state != State::Accepting {
@@ -603,7 +590,9 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
 
             client.push_entries_to_send_queue(entries);
 
-            client.send_queue_entry()
+            client.send_queue_entry().await?;
+
+            Ok(())
         }
         Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message.to_str()?)),
 
@@ -611,8 +600,8 @@ fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
     }
 }
 
-fn full_query_for_server(server_uid: u32) {
-    let mut client = connect_to_server(server_uid);
+async fn full_query_for_server(server_uid: u32) {
+    let mut client = connect_to_server(server_uid).await;
 
     client.state = State::Accepting;
 
@@ -621,13 +610,14 @@ fn full_query_for_server(server_uid: u32) {
             version: 1,
             server_pin: SERVER_PIN,
         }))
+        .await
         .unwrap();
 
     start_handle_loop(client);
 }
 
-fn send_queue_for_server(server_uid: u32) {
-    let mut client = connect_to_server(server_uid);
+async fn send_queue_for_server(server_uid: u32) {
+    let mut client = connect_to_server(server_uid).await;
 
     client.state = State::Responding;
 
@@ -638,29 +628,30 @@ fn send_queue_for_server(server_uid: u32) {
             version: 1,
             server_pin: SERVER_PIN,
         }))
+        .await
         .unwrap();
 
     start_handle_loop(client);
 }
 
-fn full_query(conn: &rusqlite::Connection) -> anyhow::Result<()> {
+async fn full_query(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     let servers = get_server_uids(conn);
 
     for server in servers {
-        full_query_for_server(server);
+        full_query_for_server(server).await;
     }
 
     Ok(()) //TODO
 }
 
-fn send_queue(conn: &rusqlite::Connection) -> anyhow::Result<()> {
+async fn send_queue(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     update_queue(&conn)?;
 
     let servers = get_server_uids(conn);
 
-    for server in servers {
-        send_queue_for_server(server);
-    }
+    let server_interactions = servers.iter().map(|&server| send_queue_for_server(server));
+
+    join_all(server_interactions).await;
 
     Ok(()) //TODO
 }
