@@ -33,36 +33,35 @@ pub struct PackageData5 {
     pub timestamp: u32,
 }
 
-impl From<DirectoryEntry> for PackageData5 {
-    fn from(entry: DirectoryEntry) -> Self {
-        let hostname = if let Some(hostname) = entry.hostname {
-            CString::new(hostname).unwrap()
+impl Into<DirectoryEntry> for PackageData5 {
+    fn into(self) -> DirectoryEntry {
+        let hostname = self.hostname.to_str().unwrap().to_owned();
+
+        let hostname = if hostname.is_empty() {
+            None
         } else {
-            CString::new("").unwrap()
+            Some(hostname)
         };
 
-        let ipaddress = if let Some(ipaddress) = entry.ipaddress {
-            std::net::Ipv4Addr::from(ipaddress)
+        let ipaddress = u32::from(self.ipaddress);
+        let ipaddress: Option<u32> = if ipaddress == 0 {
+            None
         } else {
-            std::net::Ipv4Addr::from(0)
+            Some(ipaddress)
         };
 
-        let mut flags = 0u16;
-        if entry.disabled {
-            flags |= 0x02;
-        }
-
-        PackageData5 {
-            number: entry.number,
-            name: CString::new(entry.name).unwrap(),
-            flags,
-            client_type: entry.connection_type,
+        DirectoryEntry {
+            number: self.number,
+            name: self.name.to_str().unwrap().to_owned(),
+            connection_type: self.client_type,
             hostname,
             ipaddress,
-            port: entry.port,
-            extension: entry.extension,
-            pin: entry.pin,
-            timestamp: entry.timestamp,
+            port: self.port,
+            extension: self.extension,
+            pin: self.pin,
+            disabled: (self.flags & 0x02) != 0,
+            timestamp: self.timestamp,
+            changed: true,
         }
     }
 }

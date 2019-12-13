@@ -1,8 +1,7 @@
 use crate::packages::PackageData5;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DirectoryEntry {
-    pub uid: Option<u32>,
     pub number: u32,
     pub name: String,
     pub connection_type: u8,
@@ -16,40 +15,42 @@ pub struct DirectoryEntry {
     pub changed: bool,
 }
 
-impl From<PackageData5> for DirectoryEntry {
-    fn from(entry: PackageData5) -> Self {
-        let hostname = entry.hostname.to_str().unwrap().to_owned();
+pub use std::ffi::{CStr, CString};
 
-        let hostname = if hostname.is_empty() {
-            None
+impl Into<PackageData5> for DirectoryEntry {
+    fn into(self) -> PackageData5 {
+        let hostname = if let Some(hostname) = self.hostname {
+            CString::new(hostname).unwrap()
         } else {
-            Some(hostname)
+            CString::new("").unwrap()
         };
 
-        let ipaddress = u32::from(entry.ipaddress);
-        let ipaddress: Option<u32> = if ipaddress == 0 {
-            None
+        let ipaddress = if let Some(ipaddress) = self.ipaddress {
+            std::net::Ipv4Addr::from(ipaddress)
         } else {
-            Some(ipaddress)
+            std::net::Ipv4Addr::from(0)
         };
 
-        DirectoryEntry {
-            uid: None,
-            number: entry.number,
-            name: entry.name.to_str().unwrap().to_owned(),
-            connection_type: entry.client_type,
+        let mut flags = 0u16;
+        if self.disabled {
+            flags |= 0x02;
+        }
+
+        PackageData5 {
+            number: self.number,
+            name: CString::new(self.name).unwrap(),
+            flags,
+            client_type: self.connection_type,
             hostname,
             ipaddress,
-            port: entry.port,
-            extension: entry.extension,
-            pin: entry.pin,
-            disabled: (entry.flags & 0x02) != 0,
-            timestamp: entry.timestamp,
-            changed: true,
+            port: self.port,
+            extension: self.extension,
+            pin: self.pin,
+            timestamp: self.timestamp,
         }
     }
 }
-
+#[derive(Debug, Clone)]
 pub struct QueueEntry {
     pub uid: u64,
     pub server: u32,
@@ -57,6 +58,7 @@ pub struct QueueEntry {
     pub timestamp: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct ServersEntry {
     pub uid: u64,
     pub ip_address: u32,

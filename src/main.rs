@@ -1,233 +1,165 @@
 #![feature(async_closure)]
 
-extern crate dotenv;
-extern crate nom;
-
-#[macro_use]
-extern crate rusqlite;
+// #[macro_use] extern crate diesel;
+// use diesel::prelude::*;
+// use diesel::sqlite::SqliteConnection;
 
 #[macro_use]
 extern crate anyhow;
 
-use rusqlite::OpenFlags;
-
 #[macro_use]
 extern crate lazy_static;
 
+extern crate dotenv;
+extern crate nom;
+
 pub mod errors;
-use errors::*;
+use errors::MyErrorKind;
 
-pub mod models;
-
+pub mod client;
 pub mod db;
+pub mod db_backend;
+pub mod models;
 pub mod packages;
 pub mod serde;
 
+use crate::models::*;
+
+use client::{Client, Mode, State};
+
 use anyhow::Context;
-use dotenv::dotenv;
 
 pub use crate::packages::*;
-use serde::{deserialize, serialize};
-
-use std::time::Duration;
+use serde::deserialize;
 
 use futures::future::join_all;
 
-use async_std::{
-    net::{IpAddr, SocketAddr, TcpListener, TcpStream},
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    net::{TcpListener, TcpStream},
     prelude::*,
     task,
 };
 
-use db::*;
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use crate::models::*;
+use futures::future::FutureExt;
+
+use std::sync::{Arc, Mutex};
+
+use db::*;
+use db_backend::Database;
+
+lazy_static! {
+    pub static ref ITELEX_EPOCH: SystemTime = UNIX_EPOCH
+        .checked_sub(Duration::from_secs(60 * 60 * 24 * 365 * 70))
+        .unwrap();
+    pub static ref DIRECTORY: Arc<Mutex<Database<DirectoryEntry>>> = Arc::new(Mutex::new(Database::new(16)));
+    pub static ref SERVERS: Arc<Mutex<Database<ServersEntry>>> = Arc::new(Mutex::new(Database::new(16)));
+    pub static ref QUEUE: Arc<Mutex<Database<QueueEntry>>> = Arc::new(Mutex::new(Database::new(16)));
+}
+
+pub fn get_current_itelex_timestamp() -> u32 {
+    SystemTime::now()
+        .duration_since(*ITELEX_EPOCH)
+        .unwrap()
+        .as_secs() as u32
+}
 
 const SERVER_PIN: u32 = 42;
-const DB_PATH: &str = "./database.db";
+const DB_FOLDER: &str = "./database";
 //TODO: use env / .env file
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Mode {
-    Ascii,
-    Binary,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    Idle,
-    Responding,
-    Accepting,
-    Shutdown,
-}
-
-pub struct Client {
-    pub socket: TcpStream,
-
-    mode: Mode,
-
-    db_con: rusqlite::Connection,
-
-    state: State,
-    send_queue: Vec<(DirectoryEntry, Option<u32>)>,
-}
-
-fn open_db_connection() -> rusqlite::Connection {
-    let db_open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-
-    rusqlite::Connection::open_with_flags(DB_PATH, db_open_flags).expect("failed to open database")
-}
-
-impl Client {
-    fn new(socket: TcpStream, db_con: rusqlite::Connection) -> Self {
-        Client {
-            socket,
-
-            mode: Mode::Unknown,
-
-            db_con,
-
-            state: State::Idle,
-            send_queue: Vec::new(),
-        }
-    }
-
-    async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
-        println!("sending package: {:#?}", package);
-        self.socket
-            .write(serialize(package).as_slice())
-            .await
-            .context(MyErrorKind::FailedToWrite)?;
-
-        Ok(())
-    }
-
-    fn shutdown(&mut self) -> std::result::Result<(), std::io::Error> {
-        self.state = State::Shutdown;
-        self.socket.shutdown(std::net::Shutdown::Both)
-    }
-
-    fn push_to_send_queue(&mut self, list: Vec<(DirectoryEntry, Option<u32>)>) {
-        self.send_queue.extend(list);
-    }
-
-    fn push_entries_to_send_queue(&mut self, list: Vec<DirectoryEntry>) {
-        self.send_queue.reserve(list.len());
-
-        for entry in list {
-            self.send_queue.push((entry, None));
-        }
-    }
-
-    async fn send_queue_entry(&mut self) -> anyhow::Result<()> {
-        if self.state != State::Responding {
-            bail!(MyErrorKind::InvalidState(State::Responding, self.state));
-        }
-
-        let len = self.send_queue.len();
-
-        println!(
-            "entries left in queue: {} -> {}",
-            len,
-            if len == 0 { 0 } else { len - 1 }
-        );
-
-        if let Some(entry) = self.send_queue.pop() {
-            let (package, queue_uid) = entry;
-
-            self.send_package(Package::Type5(PackageData5::from(package)))
-                .await?;
-
-            if let Some(queue_uid) = queue_uid {
-                remove_queue_entry(&self.db_con, queue_uid);
-            }
-
-            Ok(())
-        } else {
-            self.send_package(Package::Type9(PackageData9 {})).await?;
-
-            Ok(())
-        }
-    }
-}
-
-fn main() {
-    task::block_on(async_main());
-}
-async fn async_main() {
-    dotenv().ok();
-
-    // std::env::var("DATABASE_PATH").expect("failed to read 'DATABASE_PATH' from environment");s
+#[tokio::main]
+async fn main() {
 
     {
-        let initial_db_open_flags =
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
-
-        let initial_db_con =
-            rusqlite::Connection::open_with_flags(DB_PATH, initial_db_open_flags).unwrap();
-
-        create_tables(&initial_db_con);
-
-        initial_db_con
-            .close()
-            .expect("failed to close initial database connection");
+        start_background_tasks();
+        println!("started background tasks");
     }
 
-    println!("database is initialized");
+    let mut listener = {
+        // TODO: use config
+        let listen_addr = SocketAddr::from(([0, 0, 0, 0], 11814));
 
-    start_server_sync();
+        let listener = TcpListener::bind(listen_addr).await.unwrap();
+        println!("listening for connections on {}", listen_addr);
 
-    println!("started server sync thread");
+        listener
+    };
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 11814));
+    let (stop_accept_loop, stopped_accept_loop) = tokio::sync::oneshot::channel::<()>();
 
-    let listener = TcpListener::bind(addr).await.unwrap();
-    // TODO: use config
-    println!("listening for connections on {}", addr);
+    let stop_accept_loop = std::cell::RefCell::new(Some(stop_accept_loop));
 
-    let mut incoming = listener.incoming();
+    ctrlc::set_handler(move || {
+        stop_accept_loop
+            .replace(None)
+            .unwrap()
+            .send(())
+            .unwrap();
+    }).expect("Error setting Ctrl-C handler");
 
-    while let Some(socket) = incoming.next().await {
-        let socket = socket.unwrap();
+    let mut stopped_accept_loop = stopped_accept_loop.fuse();
+    loop {
+        futures::select! {
+            res = listener.accept().fuse() => {
+                let (socket, _) = res.expect("Failed to accept socket");
 
-        setup_socket(&socket);
+                setup_socket(&socket);
 
-        let db_conn = open_db_connection();
-        let client = Client::new(socket, db_conn);
+                let client = Client::new(socket);
 
-        start_handle_loop(client);
+                start_handling_client(client);
+            },
+            _ = stopped_accept_loop => break,
+        }
+
     }
+
+    println!("cleaning up");
+
+    let directory = DIRECTORY.lock().unwrap();
+    let servers = SERVERS.lock().unwrap();
+    let queue = QUEUE.lock().unwrap();
+
+    futures::join! (directory.close(), servers.close(), queue.close());
+
+    println!("change da world");
+    println!("my final message: goodbye");
 }
 
 // TODO: rename
-fn start_server_sync() {
-    task::spawn((async || {
-        // let db_conn = open_db_connection();
+fn start_background_tasks() {
+    task::spawn(async {
         loop {
             println!("calling `prune_old_queue_entries`");
-            // prune_old_queue_entries(&db_conn); //.await;
-            task::sleep(Duration::new(60 * 60 * 24 * 7, 0)).await;
-        }
-    })());
+            prune_old_queue_entries().expect("failed to prune old queue entries"); //.await;
 
-    task::spawn((async || {
-        // let db_conn = open_db_connection();
+            tokio::time::delay_for(Duration::new(60 * 60 * 24 * 7, 0)).await;
+        }
+    });
+
+    task::spawn(async {
         loop {
             println!("calling `full_query`");
-            // full_query(&db_conn).await;
-            task::sleep(Duration::new(60 * 60 * 24, 0)).await;
-        }
-    })());
+            full_query().await.expect("failed to perform full query");
 
-    task::spawn((async || {
-        // let db_conn = open_db_connection();
+            tokio::time::delay_for(Duration::new(60 * 60 * 24, 0)).await;
+        }
+    });
+
+    task::spawn(async {
         loop {
             println!("calling `send_queue`");
-            // send_queue(&db_conn).await;
-            task::sleep(Duration::new(30, 0)).await;
+            send_queue().await.expect("failed to send queue");
+
+            tokio::time::delay_for(Duration::new(30, 0)).await;
         }
-    })());
+    });
 }
 
 fn setup_socket(socket: &TcpStream) {
@@ -236,9 +168,7 @@ fn setup_socket(socket: &TcpStream) {
 }
 
 async fn connect_to_server(server_uid: u32) -> Client {
-    let db_conn = open_db_connection();
-
-    let addr = get_server_address_for_uid(&db_conn, server_uid);
+    let addr = get_server_address_for_uid(server_uid);
 
     let socket = TcpStream::connect(addr)
         .await
@@ -246,17 +176,17 @@ async fn connect_to_server(server_uid: u32) -> Client {
 
     setup_socket(&socket);
 
-    Client::new(socket, db_conn)
+    Client::new(socket)
 }
 
-fn start_handle_loop(client: Client) {
-    task::spawn((async move || {
+fn start_handling_client(client: Client) {
+    task::spawn(async {
         if let Err(error) = handle_connection(client).await {
             println!("error: {}", error);
         }
 
         println!("connection closed");
-    })());
+    });
 }
 
 async fn handle_connection(mut client: Client) -> anyhow::Result<()> {
@@ -311,20 +241,12 @@ async fn consume_package(client: &mut Client) -> anyhow::Result<()> {
 }
 
 async fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
-    let mut line = String::new();
+    let mut lines = BufReader::new(&mut client.socket).lines();
 
-    let mut bytes = (&mut client.socket).bytes();
-    while let Some(byte) = bytes.next().await {
-        let byte = byte? as char;
-
-        if byte == '\n' {
-            break;
-        }
-
-        line.push(byte);
-    }
-
-    let line = line.trim();
+    let line = lines
+        .next_line()
+        .await?
+        .context(MyErrorKind::UserInputError)?;
 
     println!("full line: {}", line);
 
@@ -352,7 +274,7 @@ async fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
 
         println!("parsed number: '{}'", number);
 
-        let entry = get_entry_by_number(&client.db_con, number, true);
+        let entry = get_entry_by_number(number, true);
 
         let message = if let Some(entry) = entry {
             let host_or_ip = if let Some(hostname) = entry.hostname {
@@ -443,12 +365,11 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 Err(MyErrorKind::UserInputError)
             }?;
 
-            let entry = get_entry_by_number(&client.db_con, package.number, false);
+            let entry = get_entry_by_number(package.number, false);
 
             if let Some(entry) = entry {
                 if entry.connection_type == 0 {
                     register_entry(
-                        &client.db_con,
                         package.number,
                         package.pin,
                         package.port,
@@ -456,18 +377,12 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                         true,
                     );
                 } else if package.pin == entry.pin {
-                    update_entry_address(
-                        &client.db_con,
-                        package.port,
-                        u32::from(ipaddress),
-                        package.number,
-                    );
+                    update_entry_address(package.port, u32::from(ipaddress), package.number);
                 } else {
                     bail!(MyErrorKind::UserInputError);
                 }
             } else {
                 register_entry(
-                    &client.db_con,
                     package.number,
                     package.pin,
                     package.port,
@@ -476,7 +391,9 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 );
             };
 
-            client.send_package(Package::Type2(PackageData2 { ipaddress })).await?;
+            client
+                .send_package(Package::Type2(PackageData2 { ipaddress }))
+                .await?;
 
             Ok(())
         }
@@ -486,10 +403,10 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
-            let entry = get_entry_by_number(&client.db_con, package.number, true);
+            let entry = get_entry_by_number(package.number, true);
 
             if let Some(entry) = entry {
-                client.send_package(Package::Type5(PackageData5::from(entry))).await?;
+                client.send_package(Package::Type5(entry.into())).await?;
             } else {
                 client.send_package(Package::Type4(PackageData4 {})).await?;
             }
@@ -502,10 +419,9 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 bail!(MyErrorKind::InvalidState(State::Accepting, client.state));
             }
 
-            let new_entry = DirectoryEntry::from(package);
+            let new_entry: DirectoryEntry = package.into();
 
             upsert_entry(
-                &client.db_con,
                 new_entry.number,
                 new_entry.name,
                 new_entry.connection_type,
@@ -534,7 +450,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
 
             client.state = State::Responding;
 
-            client.push_entries_to_send_queue(get_all_entries(&client.db_con));
+            client.push_entries_to_send_queue(get_all_entries());
 
             client.send_queue_entry().await?;
 
@@ -583,8 +499,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
-            let entries =
-                get_public_entries_by_pattern(&client.db_con, package.pattern.to_str().unwrap());
+            let entries = get_public_entries_by_pattern(package.pattern.to_str().unwrap());
 
             client.state = State::Responding;
 
@@ -613,7 +528,7 @@ async fn full_query_for_server(server_uid: u32) {
         .await
         .unwrap();
 
-    start_handle_loop(client);
+    start_handling_client(client);
 }
 
 async fn send_queue_for_server(server_uid: u32) {
@@ -621,7 +536,7 @@ async fn send_queue_for_server(server_uid: u32) {
 
     client.state = State::Responding;
 
-    client.push_to_send_queue(get_queue_for_server(&client.db_con, server_uid));
+    client.push_to_send_queue(get_queue_for_server(server_uid));
 
     client
         .send_package(Package::Type6(PackageData6 {
@@ -631,11 +546,11 @@ async fn send_queue_for_server(server_uid: u32) {
         .await
         .unwrap();
 
-    start_handle_loop(client);
+    start_handling_client(client);
 }
 
-async fn full_query(conn: &rusqlite::Connection) -> anyhow::Result<()> {
-    let servers = get_server_uids(conn);
+async fn full_query() -> anyhow::Result<()> {
+    let servers = get_server_uids();
 
     for server in servers {
         full_query_for_server(server).await;
@@ -644,10 +559,10 @@ async fn full_query(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     Ok(()) //TODO
 }
 
-async fn send_queue(conn: &rusqlite::Connection) -> anyhow::Result<()> {
-    update_queue(&conn)?;
+async fn send_queue() -> anyhow::Result<()> {
+    update_queue()?;
 
-    let servers = get_server_uids(conn);
+    let servers = get_server_uids();
 
     let server_interactions = servers.iter().map(|&server| send_queue_for_server(server));
 
