@@ -3,8 +3,13 @@
 #![warn(
     clippy::all,
     clippy::pedantic,
-    clippy::cargo,
+    // clippy::cargo,
     clippy::nursery,
+    clippy::unimplemented,
+)]
+
+#![allow(
+    clippy::similar_names,
 )]
 
 // #[macro_use] extern crate diesel;
@@ -79,7 +84,7 @@ pub fn get_current_itelex_timestamp() -> u32 {
 }
 
 const SERVER_PIN: u32 = 42;
-const DB_FOLDER: &str = "./database";
+// const DB_FOLDER: &str = "./database";
 //TODO: use env / .env file
 
 
@@ -464,9 +469,11 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                         package.port,
                         u32::from(ipaddress),
                         true,
-                    );
+                    )?
+                        .expect("Failed to register entry");// TODO: handle properly
                 } else if package.pin == entry.pin {
-                    update_entry_address(package.port, u32::from(ipaddress), package.number);
+                    update_entry_address(package.port, u32::from(ipaddress), package.number)?
+                        .expect("Failed to update entry address");// TODO: handle properly
                 } else {
                     bail!(MyErrorKind::UserInputError);
                 }
@@ -477,7 +484,8 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                     package.port,
                     u32::from(ipaddress),
                     false,
-                );
+                )?
+                    .expect("Failed to register entry");// TODO: handle properly
             };
 
             client
@@ -521,7 +529,8 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 new_entry.pin,
                 new_entry.disabled,
                 new_entry.timestamp,
-            );
+            )?
+                .expect("Failed to sync entry");// TODO: handle properly
             client.send_package(Package::Type8(PackageData8 {})).await?;
 
             Ok(())

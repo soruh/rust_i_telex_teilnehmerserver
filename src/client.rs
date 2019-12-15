@@ -1,6 +1,5 @@
 use crate::{errors::MyErrorKind, models::*, packages::*, serde::serialize};
 use anyhow::Context;
-use std::io::Write;
 use tokio::{net::TcpStream, prelude::*};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,7 +79,7 @@ impl Client {
 
             self.send_package(Package::Type5(package.into())).await?;
 
-            if let Some(queue_uid) = queue_uid {
+            if let Some(_queue_uid) = queue_uid {
                 unimplemented!();
                 // remove_queue_entry(&self.db_con, queue_uid);
             }

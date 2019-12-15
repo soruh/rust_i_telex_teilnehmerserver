@@ -1,8 +1,7 @@
 use crate::{
-    errors::MyErrorKind,
     models::*,
 };
-use anyhow::Context;
+
 use std::net::SocketAddr;
 
 use crate::{DIRECTORY, QUEUE, SERVERS};
@@ -20,52 +19,52 @@ pub async fn get_all_entries() -> Vec<DirectoryEntry> {
     directory.get_all().await
 }
 
-pub fn create_entry(entry: &DirectoryEntry) -> anyhow::Result<anyhow::Result<Result<(), ()>>> {
+pub fn create_entry(_entry: &DirectoryEntry) -> anyhow::Result<anyhow::Result<Result<(), ()>>> {
     unimplemented!()
 }
 
 pub fn register_entry(
-    number: u32,
-    pin: u16,
-    port: u16,
-    ipaddress: u32,
-    overwrite: bool,
+    _number: u32,
+    _pin: u16,
+    _port: u16,
+    _ipaddress: u32,
+    _overwrite: bool,
 ) -> anyhow::Result<Result<(), ()>> {
     unimplemented!()
 }
 
 pub fn update_entry_address(
-    port: u16,
-    ipaddress: u32,
-    number: u32,
+    _port: u16,
+    _ipaddress: u32,
+    _number: u32,
 ) -> anyhow::Result<Result<(), ()>> {
     unimplemented!()
 }
 
 pub fn upsert_entry(
-    number: u32,
-    name: String,
-    connection_type: u8,
-    hostname: Option<String>,
-    ipaddress: Option<u32>,
-    port: u16,
-    extension: u8,
-    pin: u16,
-    disabled: bool,
-    new_timestamp: u32,
+    _number: u32,
+    _name: String,
+    _connection_type: u8,
+    _hostname: Option<String>,
+    _ipaddress: Option<u32>,
+    _port: u16,
+    _extension: u8,
+    _pin: u16,
+    _disabled: bool,
+    _new_timestamp: u32,
 ) -> anyhow::Result<Result<(), ()>> {
     unimplemented!()
 }
 
-pub fn get_queue_for_server(server_uid: Uid) -> Vec<(DirectoryEntry, Option<u32>)> {
+pub fn get_queue_for_server(_server_uid: Uid) -> Vec<(DirectoryEntry, Option<u32>)> {
     unimplemented!()
 }
 
-pub fn get_server_address_for_uid(server_uid: Uid) -> SocketAddr {
+pub fn get_server_address_for_uid(_server_uid: Uid) -> SocketAddr {
     unimplemented!()
 }
 
-pub fn remove_queue_entry(queue_uid: Uid) {
+pub fn remove_queue_entry(_queue_uid: Uid) {
     unimplemented!()
 }
 
@@ -143,10 +142,10 @@ pub async fn prune_old_queue_entries() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn get_public_entries_by_pattern(pattern: &str) -> Vec<DirectoryEntry> {
+pub fn get_public_entries_by_pattern(_pattern: &str) -> Vec<DirectoryEntry> {
     unimplemented!()
 }
 
-pub fn get_entry_by_number(number: u32, truncate_privates: bool) -> Option<DirectoryEntry> {
+pub fn get_entry_by_number(_number: u32, _truncate_privates: bool) -> Option<DirectoryEntry> {
     unimplemented!()
 }

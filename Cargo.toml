@@ -3,6 +3,8 @@ name = "rust_i_telex_teilnehmerserver"
 version = "0.1.0"
 authors = ["soruh <mail@soruh.de>"]
 edition = "2018"
+description = "The I-Telex Server rewritten in rust"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 nom = "4.2.3"
