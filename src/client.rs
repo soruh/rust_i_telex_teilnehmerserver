@@ -84,12 +84,10 @@ impl Client {
                 unimplemented!();
                 // remove_queue_entry(&self.db_con, queue_uid);
             }
-
-            Ok(())
         } else {
             self.send_package(Package::Type9(PackageData9 {})).await?;
-
-            Ok(())
         }
+        
+        Ok(())
     }
 }

@@ -17,4 +17,7 @@ pub enum MyErrorKind {
 
     #[error("Invalid state. Expected {:?} was {:?}", _0, _1)]
     InvalidState(State, State),
+
+    #[error("Client timed out.")]
+    Timeout,
 }

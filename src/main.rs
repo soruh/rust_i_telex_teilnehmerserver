@@ -1,5 +1,12 @@
 #![feature(async_closure)]
 
+#![warn(
+    clippy::all,
+    clippy::pedantic,
+    clippy::cargo,
+    clippy::nursery,
+)]
+
 // #[macro_use] extern crate diesel;
 // use diesel::prelude::*;
 // use diesel::sqlite::SqliteConnection;
@@ -51,9 +58,11 @@ use futures::future::FutureExt;
 use std::sync::{Arc, Mutex};
 
 use db::*;
-use db_backend::Database;
+use db_backend::{Database, Uid};
+
 
 lazy_static! {
+    pub static ref CLIENT_TIMEOUT: Duration = Duration::new(30, 0);
     pub static ref ITELEX_EPOCH: SystemTime = UNIX_EPOCH
         .checked_sub(Duration::from_secs(60 * 60 * 24 * 365 * 70))
         .unwrap();
@@ -73,13 +82,11 @@ const SERVER_PIN: u32 = 42;
 const DB_FOLDER: &str = "./database";
 //TODO: use env / .env file
 
+
 #[tokio::main]
 async fn main() {
-
-    {
-        start_background_tasks();
-        println!("started background tasks");
-    }
+    let (background_task_handles, stop_background_tasks) = start_background_tasks();
+    println!("started background tasks");
 
     let mut listener = {
         // TODO: use config
@@ -103,22 +110,51 @@ async fn main() {
             .unwrap();
     }).expect("Error setting Ctrl-C handler");
 
+    // let mut client_tasks: Vec<task::JoinHandle<()>> = Vec::new();
+    // ! This is a memory leak!
+    // ! join handles are pushed to, but not popped from the vec
+    // TODO: fix
+
     let mut stopped_accept_loop = stopped_accept_loop.fuse();
     loop {
         futures::select! {
             res = listener.accept().fuse() => {
                 let (socket, _) = res.expect("Failed to accept socket");
 
-                setup_socket(&socket);
+                // setup_socket(&socket);
 
                 let client = Client::new(socket);
 
+                // client_tasks.push(start_handling_client(client));
                 start_handling_client(client);
+
+                // println!("client_tasks length: {}", client_tasks.len());
             },
             _ = stopped_accept_loop => break,
         }
-
     }
+
+
+    println!("accept loop has ended, no reason to continue to live");
+
+    println!("stopping background tasks");
+
+    for stop_background_task in stop_background_tasks {
+        if let Err(_) = stop_background_task.send(()) {
+            println!("Failed to stop a background task. It probably paniced!");
+        }
+    }
+
+    futures::future::join_all(background_task_handles).await;
+
+    println!("done");
+
+    println!("waiting for children to die");
+
+    // futures::future::join_all(client_tasks).await;
+    println!("[Not actually doing that due to memory leak problem]");
+
+    println!("done");
 
     println!("cleaning up");
 
@@ -128,77 +164,130 @@ async fn main() {
 
     futures::join! (directory.close(), servers.close(), queue.close());
 
+    println!("done");
+
+    println!("killing parent process");
+
     println!("change da world");
     println!("my final message: goodbye");
 }
 
 // TODO: rename
-fn start_background_tasks() {
-    task::spawn(async {
+fn start_background_tasks() -> (Vec<task::JoinHandle<()>>, Vec<tokio::sync::oneshot::Sender<()>>){
+    let mut join_handles = Vec::new();
+    let mut senders = Vec::new();
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    senders.push(sender);
+    join_handles.push(task::spawn(async move {
+        println!("starting `prune_old_queue_entries` background task");
+        let mut exit = receiver.fuse();
         loop {
             println!("calling `prune_old_queue_entries`");
-            prune_old_queue_entries().expect("failed to prune old queue entries"); //.await;
+            prune_old_queue_entries().await.expect("failed to prune old queue entries"); //.await;
 
-            tokio::time::delay_for(Duration::new(60 * 60 * 24 * 7, 0)).await;
+            futures::select! {
+                _ = exit => break,
+                _ = tokio::time::delay_for(Duration::new(60 * 60 * 24 * 7, 0)).fuse() => continue,
+            }
+
         }
-    });
+        println!("stopped `prune_old_queue_entries` background task");
+    }));
 
-    task::spawn(async {
+    std::thread::sleep(Duration::new(1, 0));
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    senders.push(sender);
+    join_handles.push(task::spawn(async move {
+        println!("starting `full_query` background task");
+        let mut exit = receiver.fuse();
         loop {
             println!("calling `full_query`");
             full_query().await.expect("failed to perform full query");
 
-            tokio::time::delay_for(Duration::new(60 * 60 * 24, 0)).await;
+            futures::select! {
+                _ = exit => break,
+                _ = tokio::time::delay_for(Duration::new(60 * 60 * 24, 0)).fuse() => continue,
+            }
         }
-    });
+        println!("stopped `full_query` background task");
+    }));
 
-    task::spawn(async {
+    std::thread::sleep(Duration::new(1, 0));
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    senders.push(sender);
+    join_handles.push(task::spawn(async move {
+        println!("starting `send_queue` background task");
+        let mut exit = receiver.fuse();
         loop {
             println!("calling `send_queue`");
             send_queue().await.expect("failed to send queue");
 
-            tokio::time::delay_for(Duration::new(30, 0)).await;
+            futures::select! {
+                _ = exit => break,
+                _ = tokio::time::delay_for(Duration::new(30, 0)).fuse() => continue,
+            }
         }
-    });
+        println!("stopped `send_queue` background task");
+    }));
+
+
+    (join_handles, senders)
 }
 
-fn setup_socket(socket: &TcpStream) {
-    // TODO: fix read timeout
-    // socket.set_read_timeout(Some(Duration::new(30, 0))).unwrap(); // TODO: check if is this correct
-}
 
-async fn connect_to_server(server_uid: u32) -> Client {
+// fn setup_socket(socket: &TcpStream) {}
+
+async fn connect_to_server(server_uid: Uid) -> Client {
     let addr = get_server_address_for_uid(server_uid);
 
     let socket = TcpStream::connect(addr)
         .await
         .expect("Failed to connect to client"); // TODO: propagate error
 
-    setup_socket(&socket);
+    // setup_socket(&socket);
 
     Client::new(socket)
 }
 
-fn start_handling_client(client: Client) {
+fn start_handling_client(client: Client) -> task::JoinHandle<()> {
     task::spawn(async {
         if let Err(error) = handle_connection(client).await {
             println!("error: {}", error);
         }
 
         println!("connection closed");
-    });
+    })
 }
 
 async fn handle_connection(mut client: Client) -> anyhow::Result<()> {
     println!("new connection: {}", client.socket.peer_addr().unwrap());
 
-    peek_client_type(&mut client).await?;
+    futures::select!{
+        _ = tokio::time::delay_for(*CLIENT_TIMEOUT).fuse() => {
+            Err(MyErrorKind::Timeout)?;
+        }
+        res = peek_client_type(&mut client).fuse() => {
+            res?;
+        },
+    }
+
     debug_assert_ne!(client.mode, Mode::Unknown);
 
     println!("client mode: {:?}", client.mode);
 
     while client.state != State::Shutdown {
-        consume_package(&mut client).await?;
+        futures::select!{
+            _ = tokio::time::delay_for(*CLIENT_TIMEOUT).fuse() => {
+                Err(MyErrorKind::Timeout)?;
+            }
+            res = consume_package(&mut client).fuse() => {
+                res?;
+                continue;
+            },
+        }
     }
 
     Ok(())
@@ -450,7 +539,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
 
             client.state = State::Responding;
 
-            client.push_entries_to_send_queue(get_all_entries());
+            client.push_entries_to_send_queue(get_all_entries().await);
 
             client.send_queue_entry().await?;
 
@@ -515,7 +604,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
     }
 }
 
-async fn full_query_for_server(server_uid: u32) {
+async fn full_query_for_server(server_uid: Uid) {
     let mut client = connect_to_server(server_uid).await;
 
     client.state = State::Accepting;
@@ -531,7 +620,7 @@ async fn full_query_for_server(server_uid: u32) {
     start_handling_client(client);
 }
 
-async fn send_queue_for_server(server_uid: u32) {
+async fn send_queue_for_server(server_uid: Uid) {
     let mut client = connect_to_server(server_uid).await;
 
     client.state = State::Responding;
@@ -550,21 +639,26 @@ async fn send_queue_for_server(server_uid: u32) {
 }
 
 async fn full_query() -> anyhow::Result<()> {
-    let servers = get_server_uids();
+    let servers = get_server_uids().await;
 
+    let mut full_queries = Vec::new();
     for server in servers {
-        full_query_for_server(server).await;
+        full_queries.push(full_query_for_server(server));
     }
+
+    futures::future::join_all(full_queries).await;
 
     Ok(()) //TODO
 }
 
 async fn send_queue() -> anyhow::Result<()> {
-    update_queue()?;
+    update_queue().await?;
 
-    let servers = get_server_uids();
+    let servers = get_server_uids().await;
 
-    let server_interactions = servers.iter().map(|&server| send_queue_for_server(server));
+    let server_interactions = servers
+        .iter()
+        .map(|&server| send_queue_for_server(server));
 
     join_all(server_interactions).await;
 

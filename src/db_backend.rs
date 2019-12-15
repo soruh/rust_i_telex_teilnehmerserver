@@ -4,7 +4,7 @@ use tokio::{
     task,
 };
 
-pub type Uid = usize;
+pub type Uid = u32;
 
 pub struct Database<T: Clone + Send + 'static> {
     sender: RefCell<Option<Sender<T>>>,
@@ -48,6 +48,7 @@ pub enum QueryAction<T: Clone + Send + 'static> {
     ReadAll,
     Insert(T),
     GetByUid(Uid),
+    DeleteByUid(Uid),
 }
 
 #[derive(Clone, Debug)]
@@ -55,12 +56,51 @@ pub enum QueryResponse<T: Clone + Send + 'static> {
     ReadAll(Vec<(Uid, T)>),
     Insert,
     GetByUid(Option<T>),
+    DeleteByUid(bool),
 }
 
 #[derive(Clone)]
 pub struct Sender<T: Clone + Send + 'static>(mpsc::Sender<Query<T>>);
 impl<T: Clone + Send + 'static> Sender<T> {
-    pub async fn query(&self) {}
+    pub async fn query(&mut self, action: QueryAction<T>) -> QueryResponse<T> {
+        let (sender, receiver) = oneshot::channel();
+
+        let query = Query {
+            action,
+            return_channel: sender,
+        };
+
+        if let Err(_) = self.0.send(query).await {
+            panic!("failed to send query");
+        }
+
+        receiver.await.expect("failed to receive response")
+    }
+
+    pub async fn push(&mut self, entry: T) -> () {
+        match self.query(QueryAction::Insert(entry)).await {
+            QueryResponse::Insert => (),
+            _ => panic!("unexpected response"),
+        }
+    }
+
+    pub async fn get_all_with_uid(&mut self) -> Vec<(Uid, T)> {
+        match self.query(QueryAction::ReadAll).await {
+            QueryResponse::ReadAll(entries) => entries,
+            _ => panic!("unexpected response"),
+        }
+    }
+
+    pub async fn get_all(&mut self) -> Vec<T> {
+        self.get_all_with_uid().await.into_iter().map(|(_, entry)| entry).collect()
+    }
+
+    pub async fn delete_uid(&mut self, uid: Uid) -> bool {
+        match self.query(QueryAction::DeleteByUid(uid)).await {
+            QueryResponse::DeleteByUid(deleted) => deleted,
+            _ => panic!("unexpected response"),
+        }
+    }
 }
 
 pub struct Receiver<T: Clone + Send + 'static>(mpsc::Receiver<Query<T>>);
@@ -84,6 +124,22 @@ impl<T: Clone + Send + 'static> Receiver<T> {
                         .map(|(_, entry)| entry.clone());
 
                     QueryResponse::GetByUid(entry)
+                },
+                QueryAction::DeleteByUid(uid) => {
+                    let index = db
+                        .iter()
+                        .find(|(entry_uid, _)| *entry_uid == uid)
+                        .map(|(uid, _)| uid);
+
+
+                    let deleted = if let Some(&index) = index {
+                        db.remove(index as usize);
+                        true
+                    }else{
+                        false
+                    };
+
+                    QueryResponse::DeleteByUid(deleted)
                 }
             };
 

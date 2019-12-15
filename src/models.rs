@@ -1,6 +1,20 @@
 use crate::packages::PackageData5;
 
 #[derive(Debug, Clone)]
+pub struct QueueEntry {
+    pub server: u32,
+    pub message: u32,
+    pub timestamp: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServersEntry {
+    pub ip_address: u32,
+    pub version: u8,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone)]
 pub struct DirectoryEntry {
     pub number: u32,
     pub name: String,
@@ -49,19 +63,4 @@ impl Into<PackageData5> for DirectoryEntry {
             timestamp: self.timestamp,
         }
     }
-}
-#[derive(Debug, Clone)]
-pub struct QueueEntry {
-    pub uid: u64,
-    pub server: u32,
-    pub message: u32,
-    pub timestamp: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct ServersEntry {
-    pub uid: u64,
-    pub ip_address: u32,
-    pub version: u8,
-    pub port: u16,
 }
