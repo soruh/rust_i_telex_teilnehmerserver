@@ -11,13 +11,14 @@ pub struct Database<T: Clone + Send + 'static> {
     join_handle: RefCell<Option<task::JoinHandle<()>>>,
 }
 impl<T: Clone + Send + 'static> Database<T> {
-    pub fn new(buffer: usize) -> Database<T> {
+    #[must_use]
+    pub fn new(buffer: usize) -> Self {
         let (sender, receiver) = mpsc::channel(buffer);
         let (sender, receiver) = (Sender(sender), Receiver(receiver));
 
         let join_handle = task::spawn(receiver.handle());
 
-        Database {
+        Self {
             sender: RefCell::new(Some(sender)),
             join_handle: RefCell::new(Some(join_handle)),
         }
@@ -70,14 +71,14 @@ impl<T: Clone + Send + 'static> Sender<T> {
             return_channel: sender,
         };
 
-        if let Err(_) = self.0.send(query).await {
+        if self.0.send(query).await.is_err() {
             panic!("failed to send query");
         }
 
         receiver.await.expect("failed to receive response")
     }
 
-    pub async fn push(&mut self, entry: T) -> () {
+    pub async fn push(&mut self, entry: T) {
         match self.query(QueryAction::Insert(entry)).await {
             QueryResponse::Insert => (),
             _ => panic!("unexpected response"),
@@ -92,7 +93,11 @@ impl<T: Clone + Send + 'static> Sender<T> {
     }
 
     pub async fn get_all(&mut self) -> Vec<T> {
-        self.get_all_with_uid().await.into_iter().map(|(_, entry)| entry).collect()
+        self.get_all_with_uid()
+            .await
+            .into_iter()
+            .map(|(_, entry)| entry)
+            .collect()
     }
 
     pub async fn delete_uid(&mut self, uid: Uid) -> bool {
@@ -118,24 +123,29 @@ impl<T: Clone + Send + 'static> Receiver<T> {
                     QueryResponse::Insert
                 }
                 QueryAction::GetByUid(uid) => {
-                    let entry = db
-                        .iter()
-                        .find(|(entry_uid, _)| *entry_uid == uid)
-                        .map(|(_, entry)| entry.clone());
+                    let entry = db.iter().find_map(|(entry_uid, entry)| {
+                        if *entry_uid == uid {
+                            Some(entry.clone())
+                        } else {
+                            None
+                        }
+                    });
 
                     QueryResponse::GetByUid(entry)
-                },
+                }
                 QueryAction::DeleteByUid(uid) => {
-                    let index = db
-                        .iter()
-                        .find(|(entry_uid, _)| *entry_uid == uid)
-                        .map(|(uid, _)| uid);
-
+                    let index = db.iter().find_map(|(entry_uid, _)| {
+                        if *entry_uid == uid {
+                            Some(entry_uid)
+                        } else {
+                            None
+                        }
+                    });
 
                     let deleted = if let Some(&index) = index {
                         db.remove(index as usize);
                         true
-                    }else{
+                    } else {
                         false
                     };
 
@@ -143,7 +153,7 @@ impl<T: Clone + Send + 'static> Receiver<T> {
                 }
             };
 
-            if let Err(_) = query.return_channel.send(response) {
+            if query.return_channel.send(response).is_err() {
                 panic!("Failed to send query response");
             }
         }

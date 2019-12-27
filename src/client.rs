@@ -25,8 +25,8 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(socket: TcpStream) -> Self {
-        Client {
+    pub const fn new(socket: TcpStream) -> Self {
+        Self {
             socket,
             mode: Mode::Unknown,
             state: State::Idle,
@@ -86,7 +86,7 @@ impl Client {
         } else {
             self.send_package(Package::Type9(PackageData9 {})).await?;
         }
-        
+
         Ok(())
     }
 }

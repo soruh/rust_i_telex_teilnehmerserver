@@ -130,14 +130,14 @@ pub fn deserialize(package_type: u8, input: &[u8]) -> anyhow::Result<Package> {
         0x0A => parse_type_10(input),
         0xFF => parse_type_255(input),
 
-        _ => Err(MyErrorKind::ParseFailure(package_type))?,
+        _ => return Err(MyErrorKind::ParseFailure(package_type).into()),
     };
 
     if let Ok(data) = data {
         Ok(data.1)
     } else {
         // TODO: do something with `error`?
-        Err(MyErrorKind::ParseFailure(package_type))?
+        Err(MyErrorKind::ParseFailure(package_type).into())
     }
 }
 
@@ -146,6 +146,7 @@ pub fn deserialize(package_type: u8, input: &[u8]) -> anyhow::Result<Package> {
 extern crate byteorder;
 use byteorder::{LittleEndian, WriteBytesExt};
 
+#[must_use]
 pub fn serialize(package: Package) -> Vec<u8> {
     match package {
         Package::Type1(package) => {
@@ -172,7 +173,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
 
-            buf.write(&package.ipaddress.octets()).unwrap();
+            buf.write_all(&package.ipaddress.octets()).unwrap();
 
             buf
         }
@@ -211,13 +212,13 @@ pub fn serialize(package: Package) -> Vec<u8> {
             buf.write_u8(package_length).unwrap();
 
             buf.write_u32::<LittleEndian>(package.number).unwrap();
-            buf.write(string_to_n_bytes(package.name, 40).as_slice())
+            buf.write_all(string_to_n_bytes(package.name, 40).as_slice())
                 .unwrap();
             buf.write_u16::<LittleEndian>(package.flags).unwrap();
             buf.write_u8(package.client_type).unwrap();
-            buf.write(string_to_n_bytes(package.hostname, 40).as_slice())
+            buf.write_all(string_to_n_bytes(package.hostname, 40).as_slice())
                 .unwrap();
-            buf.write(&package.ipaddress.octets()).unwrap();
+            buf.write_all(&package.ipaddress.octets()).unwrap();
             buf.write_u16::<LittleEndian>(package.port).unwrap();
             buf.write_u8(package.extension).unwrap();
             buf.write_u16::<LittleEndian>(package.pin).unwrap();
@@ -285,7 +286,7 @@ pub fn serialize(package: Package) -> Vec<u8> {
             buf.write_u8(package_length).unwrap();
 
             buf.write_u8(package.version).unwrap();
-            buf.write(string_to_n_bytes(package.pattern, 40).as_slice())
+            buf.write_all(string_to_n_bytes(package.pattern, 40).as_slice())
                 .unwrap();
 
             buf
@@ -294,16 +295,20 @@ pub fn serialize(package: Package) -> Vec<u8> {
         Package::Type255(package) => {
             let package_type: u8 = 0xFF;
 
-            let message = package.message.into_bytes_with_nul();
+            let mut message = package.message.into_bytes_with_nul();
 
-            let package_length: u8 = message.capacity() as u8;
+            message.truncate(0xff);
+            *message.last_mut().unwrap() = 0x00;
+
+            #[allow(clippy::cast_possible_truncation)]
+            let package_length = message.len() as u8;
 
             let mut buf: Vec<u8> = Vec::with_capacity(package_length as usize + 2);
 
             buf.write_u8(package_type).unwrap();
             buf.write_u8(package_length).unwrap();
 
-            buf.write(&message).unwrap();
+            buf.write_all(&message).unwrap();
 
             buf
         }
@@ -315,7 +320,7 @@ fn string_to_n_bytes(input: CString, n: usize) -> Vec<u8> {
 
     buf.truncate(n - 1); // leave space for at least one nul
 
-    buf.extend(vec![0u8; n - buf.len()]); // fill buffer up to `n` with 0u8
+    buf.extend(vec![0_u8; n - buf.len()]); // fill buffer up to `n` with 0u8
 
     buf
 }

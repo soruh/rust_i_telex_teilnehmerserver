@@ -45,7 +45,7 @@ impl Into<PackageData5> for DirectoryEntry {
             std::net::Ipv4Addr::from(0)
         };
 
-        let mut flags = 0u16;
+        let mut flags: u16 = 0;
         if self.disabled {
             flags |= 0x02;
         }

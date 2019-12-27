@@ -1,16 +1,14 @@
-use crate::{
-    models::*,
-};
+use crate::models::*;
 
 use std::net::SocketAddr;
 
-use crate::{DIRECTORY, QUEUE, SERVERS};
 pub use crate::db_backend;
+use crate::{DIRECTORY, QUEUE, SERVERS};
 
 macro_rules! get {
     ($e: expr) => {
         $e.lock().unwrap().get()
-    }
+    };
 }
 
 pub async fn get_all_entries() -> Vec<DirectoryEntry> {
@@ -41,6 +39,7 @@ pub fn update_entry_address(
     unimplemented!()
 }
 
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 pub fn upsert_entry(
     _number: u32,
     _name: String,
@@ -56,10 +55,12 @@ pub fn upsert_entry(
     unimplemented!()
 }
 
+#[must_use]
 pub fn get_queue_for_server(_server_uid: Uid) -> Vec<(DirectoryEntry, Option<u32>)> {
     unimplemented!()
 }
 
+#[must_use]
 pub fn get_server_address_for_uid(_server_uid: Uid) -> SocketAddr {
     unimplemented!()
 }
@@ -78,6 +79,7 @@ pub async fn get_server_uids() -> Vec<Uid> {
         .collect()
 }
 
+#[must_use]
 pub fn get_changed_entry_uids() -> Vec<u32> {
     unimplemented!()
 }
@@ -88,30 +90,29 @@ pub async fn update_queue() -> anyhow::Result<()> {
 
     let servers = get_server_uids().await;
 
-
     let changed_entry_uids: Vec<Uid> = directory
         .get_all_with_uid()
         .await
         .into_iter()
-        .filter(|(_, entry)| entry.changed)
-        .map(|(uid, _)| uid)
+        .filter_map(|(uid, entry)| if entry.changed { Some(uid) } else { None })
         .collect();
 
-
-
-    for server in servers.iter() {
+    for server in &servers {
         for entry_uid in &changed_entry_uids {
-            queue.push(QueueEntry {
-                server: *server as u32,
-                message: *entry_uid as u32,
-                timestamp: get_unix_timestamp(),
-            }).await;
+            queue
+                .push(QueueEntry {
+                    server: *server as u32,
+                    message: *entry_uid as u32,
+                    timestamp: get_unix_timestamp(),
+                })
+                .await;
         }
     }
 
     Ok(()) //TODO
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn get_unix_timestamp() -> u32 {
     (SystemTime::now())
         .duration_since(UNIX_EPOCH)
@@ -119,8 +120,8 @@ fn get_unix_timestamp() -> u32 {
         .as_secs() as u32
 }
 
-use std::time::{SystemTime, UNIX_EPOCH};
 use db_backend::Uid;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub async fn prune_old_queue_entries() -> anyhow::Result<()> {
     let mut queue: db_backend::Sender<QueueEntry> = get!(QUEUE);
@@ -131,8 +132,13 @@ pub async fn prune_old_queue_entries() -> anyhow::Result<()> {
 
     let uids_to_delete: Vec<Uid> = all_entries
         .into_iter()
-        .filter(|(_, entry)| entry.timestamp < timestamp_one_month_ago)
-        .map(|(uid, _)| uid)
+        .filter_map(|(uid, entry)| {
+            if entry.timestamp < timestamp_one_month_ago {
+                Some(uid)
+            } else {
+                None
+            }
+        })
         .collect();
 
     for uid in uids_to_delete {
@@ -142,10 +148,12 @@ pub async fn prune_old_queue_entries() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[must_use]
 pub fn get_public_entries_by_pattern(_pattern: &str) -> Vec<DirectoryEntry> {
     unimplemented!()
 }
 
+#[must_use]
 pub fn get_entry_by_number(_number: u32, _truncate_privates: bool) -> Option<DirectoryEntry> {
     unimplemented!()
 }
