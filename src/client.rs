@@ -1,6 +1,6 @@
-use crate::{errors::MyErrorKind, models::*, packages::*, serde::serialize};
+use crate::{errors::MyErrorKind, packages::*, serde::serialize};
 use anyhow::Context;
-use tokio::{net::TcpStream, prelude::*};
+use async_std::{net::TcpStream, prelude::*};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -21,7 +21,7 @@ pub struct Client {
     pub socket: TcpStream,
     pub mode: Mode,
     pub state: State,
-    send_queue: Vec<(DirectoryEntry, Option<u32>)>,
+    send_queue: Vec<(ProcessedPackage5, Option<u32>)>,
 }
 
 impl Client {
@@ -37,7 +37,7 @@ impl Client {
     pub async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
         println!("sending package: {:#?}", package);
         self.socket
-            .write(serialize(package).as_slice())
+            .write(serialize(package.into()).as_slice())
             .await
             .context(MyErrorKind::FailedToWrite)?;
 
@@ -49,11 +49,11 @@ impl Client {
         self.socket.shutdown(std::net::Shutdown::Both)
     }
 
-    pub fn push_to_send_queue(&mut self, list: Vec<(DirectoryEntry, Option<u32>)>) {
+    pub fn push_to_send_queue(&mut self, list: Vec<(ProcessedPackage5, Option<u32>)>) {
         self.send_queue.extend(list);
     }
 
-    pub fn push_entries_to_send_queue(&mut self, list: Vec<DirectoryEntry>) {
+    pub fn push_entries_to_send_queue(&mut self, list: Vec<ProcessedPackage5>) {
         self.send_queue.reserve(list.len());
 
         for entry in list {
@@ -84,7 +84,8 @@ impl Client {
                 // remove_queue_entry(&self.db_con, queue_uid);
             }
         } else {
-            self.send_package(Package::Type9(PackageData9 {})).await?;
+            self.send_package(Package::Type9(ProcessedPackage9 {}))
+                .await?;
         }
 
         Ok(())

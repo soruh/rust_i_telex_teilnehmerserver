@@ -1,23 +1,24 @@
-use crate::models::*;
+use super::packages::*;
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::{Arc, RwLock};
 
-use std::net::SocketAddr;
+pub type Uid = u32;
 
-pub use crate::db_backend;
-use crate::{DIRECTORY, QUEUE, SERVERS};
-
-macro_rules! get {
-    ($e: expr) => {
-        $e.lock().unwrap().get()
-    };
+lazy_static! {
+    pub static ref DB: Arc<RwLock<HashMap<u32, ProcessedPackage5>>> =
+        Arc::new(RwLock::new(HashMap::new()));
 }
 
-pub async fn get_all_entries() -> Vec<DirectoryEntry> {
-    let mut directory = get!(DIRECTORY);
+pub async fn sync_db_to_disk() {}
 
-    directory.get_all().await
+//
+
+pub async fn get_all_entries() -> Vec<ProcessedPackage5> {
+    unimplemented!()
 }
 
-pub fn create_entry(_entry: &DirectoryEntry) -> anyhow::Result<anyhow::Result<Result<(), ()>>> {
+pub fn create_entry(_entry: &ProcessedPackage5) -> anyhow::Result<anyhow::Result<Result<(), ()>>> {
     unimplemented!()
 }
 
@@ -45,7 +46,7 @@ pub fn upsert_entry(
     _name: String,
     _connection_type: u8,
     _hostname: Option<String>,
-    _ipaddress: Option<u32>,
+    _ipaddress: Option<Ipv4Addr>,
     _port: u16,
     _extension: u8,
     _pin: u16,
@@ -56,7 +57,7 @@ pub fn upsert_entry(
 }
 
 #[must_use]
-pub fn get_queue_for_server(_server_uid: Uid) -> Vec<(DirectoryEntry, Option<u32>)> {
+pub fn get_queue_for_server(_server_uid: Uid) -> Vec<(ProcessedPackage5, Option<u32>)> {
     unimplemented!()
 }
 
@@ -70,13 +71,7 @@ pub fn remove_queue_entry(_queue_uid: Uid) {
 }
 
 pub async fn get_server_uids() -> Vec<Uid> {
-    let mut servers = get!(SERVERS);
-    servers
-        .get_all_with_uid()
-        .await
-        .into_iter()
-        .map(|(uid, _)| uid)
-        .collect()
+    unimplemented!()
 }
 
 #[must_use]
@@ -85,75 +80,19 @@ pub fn get_changed_entry_uids() -> Vec<u32> {
 }
 
 pub async fn update_queue() -> anyhow::Result<()> {
-    let mut queue = get!(QUEUE);
-    let mut directory = get!(DIRECTORY);
-
-    let servers = get_server_uids().await;
-
-    let changed_entry_uids: Vec<Uid> = directory
-        .get_all_with_uid()
-        .await
-        .into_iter()
-        .filter_map(|(uid, entry)| if entry.changed { Some(uid) } else { None })
-        .collect();
-
-    for server in &servers {
-        for entry_uid in &changed_entry_uids {
-            queue
-                .push(QueueEntry {
-                    server: *server as u32,
-                    message: *entry_uid as u32,
-                    timestamp: get_unix_timestamp(),
-                })
-                .await;
-        }
-    }
-
-    Ok(()) //TODO
+    unimplemented!()
 }
-
-#[allow(clippy::cast_possible_truncation)]
-fn get_unix_timestamp() -> u32 {
-    (SystemTime::now())
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as u32
-}
-
-use db_backend::Uid;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub async fn prune_old_queue_entries() -> anyhow::Result<()> {
-    let mut queue: db_backend::Sender<QueueEntry> = get!(QUEUE);
-
-    let timestamp_one_month_ago = get_unix_timestamp() - 31 * 24 * 60 * 60;
-
-    let all_entries = queue.get_all_with_uid().await;
-
-    let uids_to_delete: Vec<Uid> = all_entries
-        .into_iter()
-        .filter_map(|(uid, entry)| {
-            if entry.timestamp < timestamp_one_month_ago {
-                Some(uid)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    for uid in uids_to_delete {
-        queue.delete_uid(uid).await;
-    }
-
-    Ok(())
-}
-
-#[must_use]
-pub fn get_public_entries_by_pattern(_pattern: &str) -> Vec<DirectoryEntry> {
     unimplemented!()
 }
 
 #[must_use]
-pub fn get_entry_by_number(_number: u32, _truncate_privates: bool) -> Option<DirectoryEntry> {
+pub fn get_public_entries_by_pattern(_pattern: &str) -> Vec<ProcessedPackage5> {
+    unimplemented!()
+}
+
+#[must_use]
+pub fn get_entry_by_number(_number: u32, _truncate_privates: bool) -> Option<ProcessedPackage5> {
     unimplemented!()
 }

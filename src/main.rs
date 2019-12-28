@@ -18,30 +18,22 @@ extern crate anyhow;
 #[macro_use]
 extern crate lazy_static;
 
-extern crate dotenv;
-extern crate nom;
 
 pub mod errors;
 use errors::MyErrorKind;
 
 pub mod client;
 pub mod db;
-pub mod db_backend;
-pub mod models;
 pub mod packages;
 pub mod serde;
-
-use crate::models::*;
 
 use client::{Client, Mode, State};
 
 use anyhow::Context;
 
 pub use crate::packages::*;
-use serde::deserialize;
 
-use futures::future::join_all;
-
+/*
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::{TcpListener, TcpStream},
@@ -49,34 +41,37 @@ use tokio::{
     task,
     sync::mpsc,
 };
+*/
+
+use async_std::{
+    io::BufReader,
+    net::{Ipv4Addr, TcpListener, TcpStream},
+    prelude::*,
+    task,
+};
 
 use std::{
-    net::{IpAddr, SocketAddr},
-    sync::{Arc, Mutex, RwLock},
     cell::RefCell,
+    mem,
+    net::IpAddr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures::{
-    future::{select_all, FutureExt},
+    channel::{mpsc, oneshot},
+    future::{join_all, select_all, FutureExt},
     select,
+    sink::SinkExt,
+    stream::StreamExt,
 };
 
 use db::*;
-use db_backend::{Database, Uid};
 
 lazy_static! {
     pub static ref CLIENT_TIMEOUT: Duration = Duration::new(30, 0);
     pub static ref ITELEX_EPOCH: SystemTime = UNIX_EPOCH
         .checked_sub(Duration::from_secs(60 * 60 * 24 * 365 * 70))
         .unwrap();
-        
-    pub static ref DIRECTORY: Arc<Mutex<Database<DirectoryEntry>>> =
-        Arc::new(Mutex::new(Database::new(16)));
-    pub static ref SERVERS: Arc<Mutex<Database<ServersEntry>>> =
-        Arc::new(Mutex::new(Database::new(16)));
-    pub static ref QUEUE: Arc<Mutex<Database<QueueEntry>>> =
-        Arc::new(Mutex::new(Database::new(16)));
 }
 
 #[must_use]
@@ -88,29 +83,18 @@ pub fn get_current_itelex_timestamp() -> u32 {
         .as_secs() as u32
 }
 
+const LISTEN_ADDR: &str = "0.0.0.0:11814";
 const SERVER_PIN: u32 = 42;
-// const DB_FOLDER: &str = "./database";
-//TODO: use env / .env file
+// const DB_FILE: &str = "./database";
+//TODO: use config
 
-#[tokio::main]
+#[async_std::main]
 async fn main() {
     let (background_task_handles, stop_background_tasks) = start_background_tasks();
     println!("started background tasks");
 
-    let mut listener = {
-        // TODO: use config
-        let listen_addr = SocketAddr::from(([0, 0, 0, 0], 11814));
-
-        let listener = TcpListener::bind(listen_addr).await.unwrap();
-        println!("listening for connections on {}", listen_addr);
-
-        listener
-    };
-
-    let (stop_accept_loop, stopped_accept_loop) = tokio::sync::oneshot::channel::<()>();
-
+    let (stop_accept_loop, stopped_accept_loop) = oneshot::channel::<()>();
     let stop_accept_loop = RefCell::new(Some(stop_accept_loop));
-
     ctrlc::set_handler(move || {
         stop_accept_loop.replace(None).unwrap().send(()).unwrap();
     })
@@ -118,27 +102,26 @@ async fn main() {
 
     let (client_watchdog, watchdog_sender) = start_client_watchdog();
 
-
     let mut stopped_accept_loop = stopped_accept_loop.fuse();
+
+    let listener = TcpListener::bind(LISTEN_ADDR).await.unwrap();
+    println!("listening for connections on {}", LISTEN_ADDR);
     loop {
-        // #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
-        {
-            select! {
-                res = listener.accept().fuse() => {
-                    let (socket, _) = res.expect("Failed to accept socket");
-                    let client = Client::new(socket);
-                    watchdog_sender
-                        .clone()
-                        .send(start_handling_client(client))
-                        .await
-                        .expect("Failed to register new client");
-                },
-                _ = stopped_accept_loop => break,
-            }
+        select! {
+            res = listener.accept().fuse() => {
+                let (socket, _) = res.expect("Failed to accept socket");
+                let client = Client::new(socket);
+                watchdog_sender
+                    .clone()
+                    .send(start_handling_client(client))
+                    .await
+                    .expect("Failed to register new client");
+            },
+            _ = stopped_accept_loop => break,
         }
     }
+    drop(listener);
     println!("accept loop has ended; shutting down");
-
 
     println!("stopping background tasks");
     for stop_background_task in stop_background_tasks {
@@ -151,20 +134,17 @@ async fn main() {
 
     println!("waiting for children to die");
     drop(watchdog_sender);
-    client_watchdog.await.expect("Failed to wait for children to die");
+    client_watchdog.await; // .expect("Failed to wait for children to die")
     println!("done");
 
-    println!("closing databases");
-    let directory = DIRECTORY.lock().unwrap();
-    let servers = SERVERS.lock().unwrap();
-    let queue = QUEUE.lock().unwrap();
-    futures::join!(directory.close(), servers.close(), queue.close());
+    println!("syncing database to disk");
+    sync_db_to_disk().await;
     println!("done");
 
     println!("exiting");
 }
 
-fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHandle<()>>){
+fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHandle<()>>) {
     let (watchdog_sender, mut watchdog_receiver) = mpsc::channel::<task::JoinHandle<()>>(1);
 
     let client_watchdog: task::JoinHandle<()> = task::spawn(async move {
@@ -174,16 +154,15 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
         while !(done && clients.is_empty()) {
             if done {
                 println!("[watchdog] we're shutting down, but there are clients to wait for");
+            } else if clients.is_empty() {
+                println!("[watchdog] we're running, but are not waiting for any clients");
             } else {
-                if clients.is_empty() {
-                    println!("[watchdog] we're running, but are not waiting for any clients");
-                } else {
-                    println!("[watchdog] we're running, and there are still clients left to wait for");
-                }
+                println!("[watchdog] we're running, and there are still clients left");
             }
 
+
             if clients.is_empty() {
-                if let Some(client_handle) = watchdog_receiver.recv().await {
+                if let Some(client_handle) = watchdog_receiver.next().await {
                     println!("[watchdog] Got a new client");
                     clients.push(client_handle);
                 } else {
@@ -200,14 +179,14 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
                         if done {
                             futures::future::pending().await
                         } else {
-                            watchdog_receiver.recv().await
+                            watchdog_receiver.next().await
                         }
                     };
 
                     select! {
                         (res, _, mut rest) = wait_for_clients => {
                             println!("[watchdog] a client we were waiting for finished");
-                            println!("[watchdog] res: {:?}", res);
+                            // println!("[watchdog] res: {:?}", res);
 
                             clients.append(&mut rest);
                             break 'inner;
@@ -234,68 +213,67 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
 }
 
 // TODO: rename
-fn start_background_tasks() -> (
-    Vec<task::JoinHandle<()>>,
-    Vec<tokio::sync::oneshot::Sender<()>>,
-) {
+fn start_background_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
     let mut join_handles = Vec::new();
     let mut senders = Vec::new();
 
-    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let (sender, receiver) = oneshot::channel();
     senders.push(sender);
     join_handles.push(task::spawn(async move {
         println!("starting `prune_old_queue_entries` background task");
         let mut exit = receiver.fuse();
         loop {
-            println!("calling `prune_old_queue_entries`");
-            prune_old_queue_entries()
-                .await
-                .expect("failed to prune old queue entries"); //.await;
-
-            #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
-            {
-            select! {
-                _ = exit => break,
-                _ = tokio::time::delay_for(Duration::new(60 * 60 * 24 * 7, 0)).fuse() => continue,
-            }}
-        }
-        println!("stopped `prune_old_queue_entries` background task");
-    }));
-
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    senders.push(sender);
-    join_handles.push(task::spawn(async move {
-        println!("starting `full_query` background task");
-        let mut exit = receiver.fuse();
-        loop {
-            println!("calling `full_query`");
-            full_query().await.expect("failed to perform full query");
+            println!("[UNIMPLEMENTED]: prune_old_queue_entries");
+            // TODO
+            // prune_old_queue_entries().await.expect("failed to prune old queue entries");
 
             #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
             {
                 select! {
                     _ = exit => break,
-                    _ = tokio::time::delay_for(Duration::new(60 * 60 * 24, 0)).fuse() => continue,
+                    _ = task::sleep(Duration::new(60 * 60 * 24 * 7, 0)).fuse() => continue,
+                }
+            }
+        }
+        println!("stopped `prune_old_queue_entries` background task");
+    }));
+
+    let (sender, receiver) = oneshot::channel();
+    senders.push(sender);
+    join_handles.push(task::spawn(async move {
+        println!("starting `full_query` background task");
+        let mut exit = receiver.fuse();
+        loop {
+            println!("[UNIMPLEMENTED]: full_query");
+            // TODO
+            // full_query().await.expect("failed to perform full query");
+
+            #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
+            {
+                select! {
+                    _ = exit => break,
+                    _ = task::sleep(Duration::new(60 * 60 * 24, 0)).fuse() => continue,
                 }
             }
         }
         println!("stopped `full_query` background task");
     }));
 
-    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let (sender, receiver) = oneshot::channel();
     senders.push(sender);
     join_handles.push(task::spawn(async move {
         println!("starting `send_queue` background task");
         let mut exit = receiver.fuse();
         loop {
-            println!("calling `send_queue`");
-            send_queue().await.expect("failed to send queue");
+            println!("[UNIMPLEMENTED]: send_queue");
+            // TODO
+            // send_queue().await.expect("failed to send queue");
 
             #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
             {
                 select! {
                     _ = exit => break,
-                    _ = tokio::time::delay_for(Duration::new(30, 0)).fuse() => continue,
+                    _ = task::sleep(Duration::new(30, 0)).fuse() => continue,
                 }
             }
         }
@@ -335,7 +313,7 @@ async fn handle_connection(mut client: Client) -> anyhow::Result<()> {
     #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
     {
         select! {
-            _ = tokio::time::delay_for(*CLIENT_TIMEOUT).fuse() => {
+            _ = task::sleep(*CLIENT_TIMEOUT).fuse() => {
                 Err(MyErrorKind::Timeout)?;
             }
             res = peek_client_type(&mut client).fuse() => {
@@ -353,7 +331,7 @@ async fn handle_connection(mut client: Client) -> anyhow::Result<()> {
         {
             {
                 select! {
-                    _ = tokio::time::delay_for(*CLIENT_TIMEOUT).fuse() => {
+                    _ = task::sleep(*CLIENT_TIMEOUT).fuse() => {
                         Err(MyErrorKind::Timeout)?;
                     }
                     res = consume_package(&mut client).fuse() => {
@@ -408,9 +386,10 @@ async fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
     let mut lines = BufReader::new(&mut client.socket).lines();
 
     let line = lines
-        .next_line()
-        .await?
-        .context(MyErrorKind::UserInputError)?;
+        .next()
+        .await
+        .context(MyErrorKind::UserInputError)?
+        .context(MyErrorKind::ConnectionCloseUnexpected)?;
 
     println!("full line: {}", line);
 
@@ -455,7 +434,7 @@ async fn consume_package_ascii(client: &mut Client) -> anyhow::Result<()> {
                 "ok\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n+++\r\n",
                 entry.number,
                 entry.name,
-                entry.connection_type,
+                entry.client_type,
                 host_or_ip,
                 entry.port,
                 entry.extension // TODO: use weird conversion?
@@ -490,27 +469,130 @@ async fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
 
     let [package_type, package_length] = header;
 
-    let mut body = vec![0_u8; package_length as usize];
-    client
-        .socket
-        .read_exact(&mut body)
-        .await
-        .context(MyErrorKind::ConnectionCloseUnexpected)?;
+
+    let package: Package = match package_type {
+        0x01 => RawPackage::Type1(unsafe {
+            if package_length != LENGTH_TYPE_1 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_1];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x02 => RawPackage::Type2(unsafe {
+            if package_length != LENGTH_TYPE_2 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_2];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x03 => RawPackage::Type3(unsafe {
+            if package_length != LENGTH_TYPE_3 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_3];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x04 => RawPackage::Type4(unsafe {
+            if package_length != LENGTH_TYPE_4 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_4];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x05 => RawPackage::Type5(unsafe {
+            if package_length != LENGTH_TYPE_5 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_5];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x06 => RawPackage::Type6(unsafe {
+            if package_length != LENGTH_TYPE_6 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_6];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x07 => RawPackage::Type7(unsafe {
+            if package_length != LENGTH_TYPE_7 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_7];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x08 => RawPackage::Type8(unsafe {
+            if package_length != LENGTH_TYPE_8 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_8];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x09 => RawPackage::Type9(unsafe {
+            if package_length != LENGTH_TYPE_9 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_9];
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0x0A => RawPackage::Type10(unsafe {
+            if package_length != LENGTH_TYPE_10 as u8 {
+                bail!(MyErrorKind::ParseFailure(package_type));
+            }
+            let mut content = [0_u8; LENGTH_TYPE_10];
+
+            read_to_mut_slice(client, &mut content).await?;
+
+            mem::transmute(content)
+        }),
+        0xFF => RawPackage::Type255({
+            let mut content = Vec::with_capacity(package_length as usize);
+            content.resize(package_length as usize, 0);
+
+            read_to_mut_slice(client, &mut content).await?;
+
+            println!("content: {:?}", content);
+
+            RawPackage255 { message: content }
+        }),
+
+        _ => bail!(MyErrorKind::ParseFailure(package_type)),
+    }.into();
 
     println!(
         "got package of type: {} with length: {}",
         package_type, package_length
     );
 
-    if !body.is_empty() {
-        println!("body: {:?}", body);
-    }
-
-    let package = deserialize(package_type, &body)?;
     println!("parsed package: {:#?}", package);
     handle_package(client, package).await?;
 
     Ok(())
+}
+
+async fn read_to_mut_slice(client: &mut Client, slice: &mut [u8]) -> anyhow::Result<()> {
+    client
+        .socket
+        .read_exact(slice)
+        .await
+        .context(MyErrorKind::ConnectionCloseUnexpected)
 }
 
 async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
@@ -532,7 +614,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
             let entry = get_entry_by_number(package.number, false);
 
             if let Some(entry) = entry {
-                if entry.connection_type == 0 {
+                if entry.client_type == 0 {
                     register_entry(
                         package.number,
                         package.pin,
@@ -559,7 +641,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
             };
 
             client
-                .send_package(Package::Type2(PackageData2 { ipaddress }))
+                .send_package(Package::Type2(ProcessedPackage2 { ipaddress }))
                 .await?;
 
             Ok(())
@@ -575,7 +657,9 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
             if let Some(entry) = entry {
                 client.send_package(Package::Type5(entry.into())).await?;
             } else {
-                client.send_package(Package::Type4(PackageData4 {})).await?;
+                client
+                    .send_package(Package::Type4(ProcessedPackage4 {}))
+                    .await?;
             }
 
             Ok(())
@@ -586,22 +670,22 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 bail!(MyErrorKind::InvalidState(State::Accepting, client.state));
             }
 
-            let new_entry: DirectoryEntry = package.into();
-
             upsert_entry(
-                new_entry.number,
-                new_entry.name,
-                new_entry.connection_type,
-                new_entry.hostname,
-                new_entry.ipaddress,
-                new_entry.port,
-                new_entry.extension,
-                new_entry.pin,
-                new_entry.disabled,
-                new_entry.timestamp,
+                package.number,
+                package.name,
+                package.client_type,
+                package.hostname,
+                package.ipaddress,
+                package.port,
+                package.extension,
+                package.pin,
+                package.disabled,
+                package.timestamp,
             )?
             .expect("Failed to sync entry"); // TODO: handle properly
-            client.send_package(Package::Type8(PackageData8 {})).await?;
+            client
+                .send_package(Package::Type8(ProcessedPackage8 {}))
+                .await?;
 
             Ok(())
         }
@@ -637,7 +721,9 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
 
             client.state = State::Accepting;
 
-            client.send_package(Package::Type8(PackageData8 {})).await?;
+            client
+                .send_package(Package::Type8(ProcessedPackage8 {}))
+                .await?;
 
             Ok(())
         }
@@ -667,7 +753,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
                 bail!(MyErrorKind::InvalidState(State::Idle, client.state));
             }
 
-            let entries = get_public_entries_by_pattern(package.pattern.to_str().unwrap());
+            let entries = get_public_entries_by_pattern(&package.pattern);
 
             client.state = State::Responding;
 
@@ -677,7 +763,7 @@ async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result
 
             Ok(())
         }
-        Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message.to_str()?)),
+        Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message)),
 
         _ => Err(MyErrorKind::UserInputError.into()),
     }
@@ -689,7 +775,7 @@ async fn full_query_for_server(server_uid: Uid) {
     client.state = State::Accepting;
 
     client
-        .send_package(Package::Type7(PackageData7 {
+        .send_package(Package::Type7(ProcessedPackage7 {
             version: 1,
             server_pin: SERVER_PIN,
         }))
@@ -707,7 +793,7 @@ async fn send_queue_for_server(server_uid: Uid) {
     client.push_to_send_queue(get_queue_for_server(server_uid));
 
     client
-        .send_package(Package::Type6(PackageData6 {
+        .send_package(Package::Type6(ProcessedPackage6 {
             version: 1,
             server_pin: SERVER_PIN,
         }))
