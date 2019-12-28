@@ -1,6 +1,8 @@
 use crate::{errors::MyErrorKind, packages::*, serde::serialize};
+
 use anyhow::Context;
 use async_std::{net::TcpStream, prelude::*};
+use std::convert::TryInto;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -37,7 +39,7 @@ impl Client {
     pub async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
         println!("sending package: {:#?}", package);
         self.socket
-            .write(serialize(package.into()).as_slice())
+            .write(serialize(package.try_into()?).as_slice())
             .await
             .context(MyErrorKind::FailedToWrite)?;
 

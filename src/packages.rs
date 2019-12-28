@@ -1,31 +1,38 @@
-use std::{ffi::CString, mem::transmute, net::Ipv4Addr};
+use std::{
+    convert::{TryFrom, TryInto},
+    ffi::CString,
+    net::Ipv4Addr,
+};
 
-
-pub const LENGTH_TYPE_1: usize = 64 / 8;
-pub const LENGTH_TYPE_2: usize = 32 / 8;
-pub const LENGTH_TYPE_3: usize = 64 / 8;
+pub const LENGTH_TYPE_1: usize = 8;
+pub const LENGTH_TYPE_2: usize = 4;
+pub const LENGTH_TYPE_3: usize = 5;
 pub const LENGTH_TYPE_4: usize = 0;
-pub const LENGTH_TYPE_5: usize = 800 / 8;
-pub const LENGTH_TYPE_6: usize = 64 / 8;
-pub const LENGTH_TYPE_7: usize = 64 / 8;
+pub const LENGTH_TYPE_5: usize = 100;
+pub const LENGTH_TYPE_6: usize = 5;
+pub const LENGTH_TYPE_7: usize = 5;
 pub const LENGTH_TYPE_8: usize = 0;
 pub const LENGTH_TYPE_9: usize = 0;
-pub const LENGTH_TYPE_10: usize = 328 / 8;
+pub const LENGTH_TYPE_10: usize = 41;
 
-
+#[repr(C, packed)]
 pub struct RawPackage1 {
     pub number: u32,
     pub pin: u16,
     pub port: u16,
 }
+#[repr(C, packed)]
 pub struct RawPackage2 {
     pub ipaddress: [u8; 4],
 }
+#[repr(C, packed)]
 pub struct RawPackage3 {
     pub number: u32,
     pub version: u8,
 }
+#[repr(C, packed)]
 pub struct RawPackage4 {}
+#[repr(C, packed)]
 pub struct RawPackage5 {
     pub number: u32,
     pub name: [u8; 40],
@@ -38,42 +45,48 @@ pub struct RawPackage5 {
     pub pin: u16,
     pub timestamp: u32,
 }
+#[repr(C, packed)]
 pub struct RawPackage6 {
     pub version: u8,
     pub server_pin: u32,
 }
+#[repr(C, packed)]
 pub struct RawPackage7 {
     pub version: u8,
     pub server_pin: u32,
 }
+#[repr(C, packed)]
 pub struct RawPackage8 {}
+#[repr(C, packed)]
 pub struct RawPackage9 {}
+#[repr(C, packed)]
 pub struct RawPackage10 {
     pub version: u8,
     pub pattern: [u8; 40],
 }
+#[repr(C, packed)]
 pub struct RawPackage255 {
     pub message: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage1 {
     pub number: u32,
     pub pin: u16,
     pub port: u16,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage2 {
     pub ipaddress: Ipv4Addr,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage3 {
     pub number: u32,
     pub version: u8,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage4 {}
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage5 {
     pub number: u32,
     pub name: String,
@@ -86,136 +99,168 @@ pub struct ProcessedPackage5 {
     pub pin: u16,
     pub timestamp: u32, // TODO
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage6 {
     pub version: u8,
     pub server_pin: u32,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage7 {
     pub version: u8,
     pub server_pin: u32,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage8 {}
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage9 {}
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage10 {
     pub version: u8,
     pub pattern: String,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ProcessedPackage255 {
     pub message: String,
 }
 
-impl From<ProcessedPackage1> for RawPackage1 {
-    fn from(pkg: ProcessedPackage1) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage1> for RawPackage1 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage1) -> anyhow::Result<Self> {
+        Ok(RawPackage1 {
+            number: pkg.number,
+            pin: pkg.pin,
+            port: pkg.port,
+        })
     }
 }
-impl From<ProcessedPackage2> for RawPackage2 {
-    fn from(pkg: ProcessedPackage2) -> Self {
-        RawPackage2 {
+impl TryFrom<ProcessedPackage2> for RawPackage2 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage2) -> anyhow::Result<Self> {
+        Ok(RawPackage2 {
             ipaddress: pkg.ipaddress.octets(),
-        }
+        })
     }
 }
-impl From<ProcessedPackage3> for RawPackage3 {
-    fn from(pkg: ProcessedPackage3) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage3> for RawPackage3 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage3) -> anyhow::Result<Self> {
+        Ok(RawPackage3 {
+            version: pkg.version,
+            number: pkg.number,
+        })
     }
 }
-impl From<ProcessedPackage4> for RawPackage4 {
-    fn from(pkg: ProcessedPackage4) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage4> for RawPackage4 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: ProcessedPackage4) -> anyhow::Result<Self> {
+        Ok(RawPackage4 {})
     }
 }
-impl From<ProcessedPackage5> for RawPackage5 {
-    fn from(pkg: ProcessedPackage5) -> Self {
-        RawPackage5 {
+impl TryFrom<ProcessedPackage5> for RawPackage5 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage5) -> anyhow::Result<Self> {
+        Ok(RawPackage5 {
             number: pkg.number,
             name: array_from_string(pkg.name),
             client_type: pkg.client_type,
             hostname: array_from_string(pkg.hostname.unwrap_or("".into())),
             ipaddress: pkg
                 .ipaddress
-                .unwrap_or(Ipv4Addr::from([0, 0, 0, 0]))
-                .octets(),
+                .map(|addr| addr.octets())
+                .unwrap_or([0, 0, 0, 0]),
             port: pkg.port,
             extension: pkg.extension,
             pin: pkg.pin,
             flags: if pkg.disabled { 0x02 } else { 0x00 },
             timestamp: pkg.timestamp,
-        }
+        })
     }
 }
-impl From<ProcessedPackage6> for RawPackage6 {
-    fn from(pkg: ProcessedPackage6) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage6> for RawPackage6 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage6) -> anyhow::Result<Self> {
+        Ok(RawPackage6 {
+            server_pin: pkg.server_pin,
+            version: pkg.version,
+        })
     }
 }
-impl From<ProcessedPackage7> for RawPackage7 {
-    fn from(pkg: ProcessedPackage7) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage7> for RawPackage7 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage7) -> anyhow::Result<Self> {
+        Ok(RawPackage7 {
+            server_pin: pkg.server_pin,
+            version: pkg.version,
+        })
     }
 }
-impl From<ProcessedPackage8> for RawPackage8 {
-    fn from(pkg: ProcessedPackage8) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage8> for RawPackage8 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: ProcessedPackage8) -> anyhow::Result<Self> {
+        Ok(RawPackage8 {})
     }
 }
-impl From<ProcessedPackage9> for RawPackage9 {
-    fn from(pkg: ProcessedPackage9) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<ProcessedPackage9> for RawPackage9 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: ProcessedPackage9) -> anyhow::Result<Self> {
+        Ok(RawPackage9 {})
     }
 }
-impl From<ProcessedPackage10> for RawPackage10 {
-    fn from(pkg: ProcessedPackage10) -> Self {
-        RawPackage10 {
+impl TryFrom<ProcessedPackage10> for RawPackage10 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage10) -> anyhow::Result<Self> {
+        Ok(RawPackage10 {
             version: pkg.version,
             pattern: array_from_string(pkg.pattern),
-        }
+        })
     }
 }
-impl From<ProcessedPackage255> for RawPackage255 {
-    fn from(pkg: ProcessedPackage255) -> Self {
-        RawPackage255 {
+impl TryFrom<ProcessedPackage255> for RawPackage255 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: ProcessedPackage255) -> anyhow::Result<Self> {
+        Ok(RawPackage255 {
             message: pkg.message.bytes().collect(),
-        }
+        })
     }
 }
 
-
-
-
-
-impl From<RawPackage1> for ProcessedPackage1 {
-    fn from(pkg: RawPackage1) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<RawPackage1> for ProcessedPackage1 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage1) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage1 {
+            number: pkg.number,
+            pin: pkg.pin,
+            port: pkg.port,
+        })
     }
 }
-impl From<RawPackage2> for ProcessedPackage2 {
-    fn from(pkg: RawPackage2) -> Self {
-        ProcessedPackage2 {
+impl TryFrom<RawPackage2> for ProcessedPackage2 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage2) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage2 {
             ipaddress: Ipv4Addr::from(pkg.ipaddress),
-        }
+        })
     }
 }
-impl From<RawPackage3> for ProcessedPackage3 {
-    fn from(pkg: RawPackage3) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<RawPackage3> for ProcessedPackage3 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage3) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage3 {
+            number: pkg.number,
+            version: pkg.version,
+        })
     }
 }
-impl From<RawPackage4> for ProcessedPackage4 {
-    fn from(pkg: RawPackage4) -> Self {
-        unsafe { transmute(pkg) }
+impl TryFrom<RawPackage4> for ProcessedPackage4 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: RawPackage4) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage4 {})
     }
 }
-impl From<RawPackage5> for ProcessedPackage5 {
-    fn from(pkg: RawPackage5) -> Self {
-        let hostname = string_from_array(pkg.hostname).unwrap(); // TODO
+impl TryFrom<RawPackage5> for ProcessedPackage5 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage5) -> anyhow::Result<Self> {
+        let hostname = string_from_array(pkg.hostname)?;
 
         let hostname = if hostname.is_empty() {
             None
@@ -230,9 +275,9 @@ impl From<RawPackage5> for ProcessedPackage5 {
             Some(ipaddress)
         };
 
-        ProcessedPackage5 {
+        Ok(ProcessedPackage5 {
             number: pkg.number,
-            name: string_from_array(pkg.name).unwrap(), // TODO
+            name: string_from_array(pkg.name)?,
             client_type: pkg.client_type,
             hostname,
             ipaddress,
@@ -241,57 +286,64 @@ impl From<RawPackage5> for ProcessedPackage5 {
             pin: pkg.pin,
             disabled: (pkg.flags & 0x02) != 0,
             timestamp: pkg.timestamp,
-        }
+        })
     }
 }
-impl From<RawPackage6> for ProcessedPackage6 {
-    fn from(pkg: RawPackage6) -> Self {
-        unsafe { transmute(pkg) }
-    }
-}
-impl From<RawPackage7> for ProcessedPackage7 {
-    fn from(pkg: RawPackage7) -> Self {
-        unsafe { transmute(pkg) }
-    }
-}
-impl From<RawPackage8> for ProcessedPackage8 {
-    fn from(pkg: RawPackage8) -> Self {
-        unsafe { transmute(pkg) }
-    }
-}
-impl From<RawPackage9> for ProcessedPackage9 {
-    fn from(pkg: RawPackage9) -> Self {
-        unsafe { transmute(pkg) }
-    }
-}
-impl From<RawPackage10> for ProcessedPackage10 {
-    fn from(pkg: RawPackage10) -> Self {
-        ProcessedPackage10 {
+impl TryFrom<RawPackage6> for ProcessedPackage6 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage6) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage6 {
+            server_pin: pkg.server_pin,
             version: pkg.version,
-            pattern: string_from_array(pkg.pattern).unwrap(), //TODO
-        }
+        })
     }
 }
-impl From<RawPackage255> for ProcessedPackage255 {
-    fn from(pkg: RawPackage255) -> Self {
+impl TryFrom<RawPackage7> for ProcessedPackage7 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage7) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage7 {
+            server_pin: pkg.server_pin,
+            version: pkg.version,
+        })
+    }
+}
+impl TryFrom<RawPackage8> for ProcessedPackage8 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: RawPackage8) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage8 {})
+    }
+}
+impl TryFrom<RawPackage9> for ProcessedPackage9 {
+    type Error = anyhow::Error;
+    fn try_from(_pkg: RawPackage9) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage9 {})
+    }
+}
+impl TryFrom<RawPackage10> for ProcessedPackage10 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage10) -> anyhow::Result<Self> {
+        Ok(ProcessedPackage10 {
+            version: pkg.version,
+            pattern: string_from_array(pkg.pattern)?,
+        })
+    }
+}
+impl TryFrom<RawPackage255> for ProcessedPackage255 {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage255) -> anyhow::Result<Self> {
         let message = CString::new(
             pkg.message
                 .into_iter()
                 .take_while(|byte| *byte != 0)
                 .collect::<Vec<u8>>(),
-        )
-        .unwrap() // TODO
-        .into_string()
-        .unwrap(); // TODO
+        )?
+        .into_string()?;
 
-        ProcessedPackage255 { message }
+        Ok(ProcessedPackage255 { message })
     }
 }
 
-
-
-
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Package {
     Type1(ProcessedPackage1),
     Type2(ProcessedPackage2),
@@ -306,21 +358,22 @@ pub enum Package {
     Type255(ProcessedPackage255),
 }
 
-impl From<RawPackage> for Package {
-    fn from(pkg: RawPackage) -> Package {
-        match pkg {
-            RawPackage::Type1(pkg) => Package::Type1(pkg.into()),
-            RawPackage::Type2(pkg) => Package::Type2(pkg.into()),
-            RawPackage::Type3(pkg) => Package::Type3(pkg.into()),
-            RawPackage::Type4(pkg) => Package::Type4(pkg.into()),
-            RawPackage::Type5(pkg) => Package::Type5(pkg.into()),
-            RawPackage::Type6(pkg) => Package::Type6(pkg.into()),
-            RawPackage::Type7(pkg) => Package::Type7(pkg.into()),
-            RawPackage::Type8(pkg) => Package::Type8(pkg.into()),
-            RawPackage::Type9(pkg) => Package::Type9(pkg.into()),
-            RawPackage::Type10(pkg) => Package::Type10(pkg.into()),
-            RawPackage::Type255(pkg) => Package::Type255(pkg.into()),
-        }
+impl TryFrom<RawPackage> for Package {
+    type Error = anyhow::Error;
+    fn try_from(pkg: RawPackage) -> anyhow::Result<Package> {
+        Ok(match pkg {
+            RawPackage::Type1(pkg) => Package::Type1(pkg.try_into()?),
+            RawPackage::Type2(pkg) => Package::Type2(pkg.try_into()?),
+            RawPackage::Type3(pkg) => Package::Type3(pkg.try_into()?),
+            RawPackage::Type4(pkg) => Package::Type4(pkg.try_into()?),
+            RawPackage::Type5(pkg) => Package::Type5(pkg.try_into()?),
+            RawPackage::Type6(pkg) => Package::Type6(pkg.try_into()?),
+            RawPackage::Type7(pkg) => Package::Type7(pkg.try_into()?),
+            RawPackage::Type8(pkg) => Package::Type8(pkg.try_into()?),
+            RawPackage::Type9(pkg) => Package::Type9(pkg.try_into()?),
+            RawPackage::Type10(pkg) => Package::Type10(pkg.try_into()?),
+            RawPackage::Type255(pkg) => Package::Type255(pkg.try_into()?),
+        })
     }
 }
 
@@ -338,21 +391,22 @@ pub enum RawPackage {
     Type255(RawPackage255),
 }
 
-impl From<Package> for RawPackage {
-    fn from(pkg: Package) -> RawPackage {
-        match pkg {
-            Package::Type1(pkg) => RawPackage::Type1(pkg.into()),
-            Package::Type2(pkg) => RawPackage::Type2(pkg.into()),
-            Package::Type3(pkg) => RawPackage::Type3(pkg.into()),
-            Package::Type4(pkg) => RawPackage::Type4(pkg.into()),
-            Package::Type5(pkg) => RawPackage::Type5(pkg.into()),
-            Package::Type6(pkg) => RawPackage::Type6(pkg.into()),
-            Package::Type7(pkg) => RawPackage::Type7(pkg.into()),
-            Package::Type8(pkg) => RawPackage::Type8(pkg.into()),
-            Package::Type9(pkg) => RawPackage::Type9(pkg.into()),
-            Package::Type10(pkg) => RawPackage::Type10(pkg.into()),
-            Package::Type255(pkg) => RawPackage::Type255(pkg.into()),
-        }
+impl TryFrom<Package> for RawPackage {
+    type Error = anyhow::Error;
+    fn try_from(pkg: Package) -> anyhow::Result<RawPackage> {
+        Ok(match pkg {
+            Package::Type1(pkg) => RawPackage::Type1(pkg.try_into()?),
+            Package::Type2(pkg) => RawPackage::Type2(pkg.try_into()?),
+            Package::Type3(pkg) => RawPackage::Type3(pkg.try_into()?),
+            Package::Type4(pkg) => RawPackage::Type4(pkg.try_into()?),
+            Package::Type5(pkg) => RawPackage::Type5(pkg.try_into()?),
+            Package::Type6(pkg) => RawPackage::Type6(pkg.try_into()?),
+            Package::Type7(pkg) => RawPackage::Type7(pkg.try_into()?),
+            Package::Type8(pkg) => RawPackage::Type8(pkg.try_into()?),
+            Package::Type9(pkg) => RawPackage::Type9(pkg.try_into()?),
+            Package::Type10(pkg) => RawPackage::Type10(pkg.try_into()?),
+            Package::Type255(pkg) => RawPackage::Type255(pkg.try_into()?),
+        })
     }
 }
 

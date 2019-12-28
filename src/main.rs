@@ -18,7 +18,6 @@ extern crate anyhow;
 #[macro_use]
 extern crate lazy_static;
 
-
 pub mod errors;
 use errors::MyErrorKind;
 
@@ -52,7 +51,7 @@ use async_std::{
 
 use std::{
     cell::RefCell,
-    mem,
+    convert::TryInto,
     net::IpAddr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -159,7 +158,6 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
             } else {
                 println!("[watchdog] we're running, and there are still clients left");
             }
-
 
             if clients.is_empty() {
                 if let Some(client_handle) = watchdog_receiver.next().await {
@@ -469,130 +467,26 @@ async fn consume_package_binary(client: &mut Client) -> anyhow::Result<()> {
 
     let [package_type, package_length] = header;
 
-
-    let package: Package = match package_type {
-        0x01 => RawPackage::Type1(unsafe {
-            if package_length != LENGTH_TYPE_1 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_1];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x02 => RawPackage::Type2(unsafe {
-            if package_length != LENGTH_TYPE_2 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_2];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x03 => RawPackage::Type3(unsafe {
-            if package_length != LENGTH_TYPE_3 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_3];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x04 => RawPackage::Type4(unsafe {
-            if package_length != LENGTH_TYPE_4 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_4];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x05 => RawPackage::Type5(unsafe {
-            if package_length != LENGTH_TYPE_5 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_5];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x06 => RawPackage::Type6(unsafe {
-            if package_length != LENGTH_TYPE_6 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_6];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x07 => RawPackage::Type7(unsafe {
-            if package_length != LENGTH_TYPE_7 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_7];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x08 => RawPackage::Type8(unsafe {
-            if package_length != LENGTH_TYPE_8 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_8];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x09 => RawPackage::Type9(unsafe {
-            if package_length != LENGTH_TYPE_9 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_9];
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0x0A => RawPackage::Type10(unsafe {
-            if package_length != LENGTH_TYPE_10 as u8 {
-                bail!(MyErrorKind::ParseFailure(package_type));
-            }
-            let mut content = [0_u8; LENGTH_TYPE_10];
-
-            read_to_mut_slice(client, &mut content).await?;
-
-            mem::transmute(content)
-        }),
-        0xFF => RawPackage::Type255({
-            let mut content = Vec::with_capacity(package_length as usize);
-            content.resize(package_length as usize, 0);
-
-            read_to_mut_slice(client, &mut content).await?;
-
-            println!("content: {:?}", content);
-
-            RawPackage255 { message: content }
-        }),
-
-        _ => bail!(MyErrorKind::ParseFailure(package_type)),
-    }.into();
-
     println!(
-        "got package of type: {} with length: {}",
+        "reading package of type: {} with length: {}",
         package_type, package_length
     );
+
+    let mut body = vec![0_u8; package_length as usize];
+    client
+        .socket
+        .read_exact(&mut body)
+        .await
+        .context(MyErrorKind::ConnectionCloseUnexpected)?;
+
+    println!("body: {:?}", body);
+
+    let package = serde::deserialize(package_type, body.as_slice())?.try_into()?;
 
     println!("parsed package: {:#?}", package);
     handle_package(client, package).await?;
 
     Ok(())
-}
-
-async fn read_to_mut_slice(client: &mut Client, slice: &mut [u8]) -> anyhow::Result<()> {
-    client
-        .socket
-        .read_exact(slice)
-        .await
-        .context(MyErrorKind::ConnectionCloseUnexpected)
 }
 
 async fn handle_package(client: &mut Client, package: Package) -> anyhow::Result<()> {
