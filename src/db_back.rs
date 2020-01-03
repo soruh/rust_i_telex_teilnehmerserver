@@ -7,7 +7,7 @@ pub fn get_entries<'a, P>(
     condition: &str,
     params: P,
     limit: Option<usize>,
-) -> Vec<ProcessedPackage5>
+) -> Vec<Package5>
 where
     P: IntoIterator,
     P::Item: rusqlite::ToSql,
@@ -19,8 +19,8 @@ where
     let mut stmt = conn.prepare(query.as_ref()).unwrap();
 
     let entry_iter = stmt
-        .query_map(params, |row| -> rusqlite::Result<ProcessedPackage5> {
-            Ok(ProcessedPackage5 {
+        .query_map(params, |row| -> rusqlite::Result<Package5> {
+            Ok(Package5 {
                 uid: row.get_unwrap(0),
                 number: row.get_unwrap(1),
                 name: row.get_unwrap(2),
@@ -45,11 +45,11 @@ where
     }
 }
 
-pub fn get_all_entries(conn: &Connection) -> Vec<ProcessedPackage5> {
+pub fn get_all_entries(conn: &Connection) -> Vec<Package5> {
     get_entries(&conn, "1", NO_PARAMS, None)
 }
 
-pub fn create_entry(conn: &Connection, entry: &ProcessedPackage5) -> bool {
+pub fn create_entry(conn: &Connection, entry: &Package5) -> bool {
     conn.execute(
         "INSERT INTO directory (
             uid,
@@ -212,7 +212,7 @@ pub fn upsert_entry(
 pub fn get_queue_for_server(
     conn: &Connection,
     server_uid: u32,
-) -> Vec<(ProcessedPackage5, Option<u32>)> {
+) -> Vec<(Package5, Option<u32>)> {
     let mut stmt = conn
         .prepare("SELECT message, uid FROM queue WHERE server=?;")
         .unwrap();
@@ -307,7 +307,7 @@ pub fn get_public_entries<'a, P>(
     condition: &str,
     params: P,
     limit: Option<usize>,
-) -> Vec<ProcessedPackage5>
+) -> Vec<Package5>
 where
     P: IntoIterator,
     P::Item: rusqlite::ToSql,
@@ -323,7 +323,7 @@ where
     entries
 }
 
-pub fn get_public_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<ProcessedPackage5> {
+pub fn get_public_entries_by_pattern(conn: &Connection, pattern: &str) -> Vec<Package5> {
     let mut condition = String::from("");
 
     let mut params = Vec::new();
@@ -354,7 +354,7 @@ pub fn get_entry_by_number(
     conn: &Connection,
     number: u32,
     truncate_privates: bool,
-) -> Option<ProcessedPackage5> {
+) -> Option<Package5> {
     if truncate_privates {
         get_public_entries(&conn, "number=?", params!(number), Some(1)).pop()
     } else {

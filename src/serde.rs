@@ -1,123 +1,13 @@
-use crate::errors::MyErrorKind;
 use crate::packages::*;
 use std::convert::TryInto;
-use std::mem::transmute;
 
 #[must_use]
-pub fn serialize(package: RawPackage) -> Vec<u8> {
-    unsafe {
-        match package {
-            RawPackage::Type1(package) => {
-                transmute::<RawPackage1, [u8; LENGTH_TYPE_1]>(package).to_vec()
-            }
-            RawPackage::Type2(package) => {
-                transmute::<RawPackage2, [u8; LENGTH_TYPE_2]>(package).to_vec()
-            }
-            RawPackage::Type3(package) => {
-                transmute::<RawPackage3, [u8; LENGTH_TYPE_3]>(package).to_vec()
-            }
-            RawPackage::Type4(package) => {
-                transmute::<RawPackage4, [u8; LENGTH_TYPE_4]>(package).to_vec()
-            }
-            RawPackage::Type5(package) => {
-                transmute::<RawPackage5, [u8; LENGTH_TYPE_5]>(package).to_vec()
-            }
-            RawPackage::Type6(package) => {
-                transmute::<RawPackage6, [u8; LENGTH_TYPE_6]>(package).to_vec()
-            }
-            RawPackage::Type7(package) => {
-                transmute::<RawPackage7, [u8; LENGTH_TYPE_7]>(package).to_vec()
-            }
-            RawPackage::Type8(package) => {
-                transmute::<RawPackage8, [u8; LENGTH_TYPE_8]>(package).to_vec()
-            }
-            RawPackage::Type9(package) => {
-                transmute::<RawPackage9, [u8; LENGTH_TYPE_9]>(package).to_vec()
-            }
-            RawPackage::Type10(package) => {
-                transmute::<RawPackage10, [u8; LENGTH_TYPE_10]>(package).to_vec()
-            }
-            RawPackage::Type255(mut package) => {
-                package.message.push(0);
-                package.message
-            }
-        }
-    }
+pub fn serialize(package: Package) -> anyhow::Result<Vec<u8>> {
+    Ok(package.try_into()?)
 }
 
-// ! This is disgusting, but neccessary until we get const generics
-pub struct ArrayImplWrapper<'a>(&'a [u8]);
-impl<'a> TryInto<[u8; LENGTH_TYPE_5]> for ArrayImplWrapper<'a> {
-    type Error = anyhow::Error;
-    fn try_into(self) -> Result<[u8; LENGTH_TYPE_5], Self::Error> {
-        let mut res = [0_u8; LENGTH_TYPE_5];
-
-        for (i, b) in self.0.into_iter().enumerate() {
-            if i < LENGTH_TYPE_5 {
-                res[i] = *b;
-            } else {
-                return Err(MyErrorKind::ParseFailure(5).into());
-            }
-        }
-
-        Ok(res)
-    }
-}
-impl<'a> TryInto<[u8; LENGTH_TYPE_10]> for ArrayImplWrapper<'a> {
-    type Error = anyhow::Error;
-    fn try_into(self) -> Result<[u8; LENGTH_TYPE_10], Self::Error> {
-        let mut res = [0_u8; LENGTH_TYPE_10];
-
-        for (i, b) in self.0.into_iter().enumerate() {
-            if i < LENGTH_TYPE_10 {
-                res[i] = *b;
-            } else {
-                return Err(MyErrorKind::ParseFailure(10).into());
-            }
-        }
-
-        Ok(res)
-    }
-}
-
-pub fn deserialize(package_type: u8, slice: &[u8]) -> anyhow::Result<RawPackage> {
-    Ok(match package_type {
-        0x01 => RawPackage::Type1(unsafe {
-            transmute::<[u8; LENGTH_TYPE_1], RawPackage1>(slice.try_into()?)
-        }),
-        0x02 => RawPackage::Type2(unsafe {
-            transmute::<[u8; LENGTH_TYPE_2], RawPackage2>(slice.try_into()?)
-        }),
-        0x03 => RawPackage::Type3(unsafe {
-            transmute::<[u8; LENGTH_TYPE_3], RawPackage3>(slice.try_into()?)
-        }),
-        0x04 => RawPackage::Type4(unsafe {
-            transmute::<[u8; LENGTH_TYPE_4], RawPackage4>(slice.try_into()?)
-        }),
-        0x05 => RawPackage::Type5(unsafe {
-            transmute::<[u8; LENGTH_TYPE_5], RawPackage5>(ArrayImplWrapper(slice).try_into()?)
-        }),
-        0x06 => RawPackage::Type6(unsafe {
-            transmute::<[u8; LENGTH_TYPE_6], RawPackage6>(slice.try_into()?)
-        }),
-        0x07 => RawPackage::Type7(unsafe {
-            transmute::<[u8; LENGTH_TYPE_7], RawPackage7>(slice.try_into()?)
-        }),
-        0x08 => RawPackage::Type8(unsafe {
-            transmute::<[u8; LENGTH_TYPE_8], RawPackage8>(slice.try_into()?)
-        }),
-        0x09 => RawPackage::Type9(unsafe {
-            transmute::<[u8; LENGTH_TYPE_9], RawPackage9>(slice.try_into()?)
-        }),
-        0x0A => RawPackage::Type10(unsafe {
-            transmute::<[u8; LENGTH_TYPE_10], RawPackage10>(ArrayImplWrapper(slice).try_into()?)
-        }),
-        0xFF => RawPackage::Type255(RawPackage255 {
-            message: Vec::from(slice),
-        }),
-
-        _ => bail!(MyErrorKind::ParseFailure(package_type)),
-    })
+pub fn deserialize(package_type: u8, slice: &[u8]) -> anyhow::Result<Package> {
+    Package::parse(package_type, slice)
 }
 
 #[cfg(test)]
@@ -129,20 +19,14 @@ mod tests {
 
     fn test_both(package_type: u8, package: Package, serialized: Vec<u8>) {
         assert_eq!(
-            Package::try_from(
-                deserialize(package_type, serialized.as_slice()).expect("deserialisation failed")
-            )
-            .expect("Failed to convert from RawPackage to Package"),
+            deserialize(package_type, serialized.as_slice())
+                .expect("Failed to convert from slice to Package"),
             package,
             "deserialize created unexpected result"
         );
 
         assert_eq!(
-            serialize(
-                package
-                    .try_into()
-                    .expect("Failed to convert from Package to RawPackage")
-            ),
+            serialize(package).expect("Failed to convert from Package to slice"),
             serialized,
             "serialisation created unexpected result"
         );
@@ -157,7 +41,7 @@ mod tests {
             0xf0, 0x0f,
         ];
 
-        let package = Package::Type1(ProcessedPackage1 {
+        let package = Package::Type1(Package1 {
             number: 0xff_00_f0_0f,
             pin: 0xf0_0f,
             port: 0x0f_f0,
@@ -173,7 +57,7 @@ mod tests {
             0xff, 0x00, 0xf0, 0x0f,
         ];
 
-        let package = Package::Type2(ProcessedPackage2 {
+        let package = Package::Type2(Package2 {
             ipaddress: Ipv4Addr::from([0xff, 0x00, 0xf0, 0x0f]),
         });
 
@@ -188,7 +72,7 @@ mod tests {
             0xf7,
         ];
 
-        let package = Package::Type3(ProcessedPackage3 {
+        let package = Package::Type3(Package3 {
             number: 0x11_22_33_44,
             version: 0xf7,
         });
@@ -200,7 +84,7 @@ mod tests {
     fn type_4() {
         let serialized: Vec<u8> = vec![];
 
-        let package = Package::Type4(ProcessedPackage4 {});
+        let package = Package::Type4(Package4 {});
 
         test_both(4, package, serialized);
     }
@@ -223,7 +107,7 @@ mod tests {
             0x14, 0x13, 0x12, 0x11,
         ];
 
-        let package = Package::Type5(ProcessedPackage5 {
+        let package = Package::Type5(Package5 {
             number: 0x01_02_03_04,
             name: String::from("Test"),
             disabled: true,
@@ -243,7 +127,7 @@ mod tests {
     fn type_6() {
         let serialized: Vec<u8> = vec![0x0f, 0x11, 0x22, 0x33, 0x44];
 
-        let package = Package::Type6(ProcessedPackage6 {
+        let package = Package::Type6(Package6 {
             server_pin: 0x44_33_22_11,
             version: 0x0f,
         });
@@ -254,7 +138,7 @@ mod tests {
     fn type_7() {
         let serialized: Vec<u8> = vec![0x0f, 0x11, 0x22, 0x33, 0x44];
 
-        let package = Package::Type7(ProcessedPackage7 {
+        let package = Package::Type7(Package7 {
             server_pin: 0x44_33_22_11,
             version: 0x0f,
         });
@@ -265,7 +149,7 @@ mod tests {
     fn type_8() {
         let serialized: Vec<u8> = vec![];
 
-        let package = Package::Type8(ProcessedPackage8 {});
+        let package = Package::Type8(Package8 {});
         test_both(8, package, serialized);
     }
 
@@ -273,7 +157,7 @@ mod tests {
     fn type_9() {
         let serialized: Vec<u8> = vec![];
 
-        let package = Package::Type9(ProcessedPackage9 {});
+        let package = Package::Type9(Package9 {});
         test_both(9, package, serialized);
     }
 
@@ -286,7 +170,7 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
 
-        let package = Package::Type10(ProcessedPackage10 {
+        let package = Package::Type10(Package10 {
             pattern: String::from("Pattern"),
             version: 0xf0,
         });
@@ -301,7 +185,7 @@ mod tests {
             100, 33, 0,
         ];
 
-        let package = Package::Type255(ProcessedPackage255 {
+        let package = Package::Type255(Package255 {
             message: String::from("An Error has occured!"),
         });
         test_both(255, package, serialized);
