@@ -404,7 +404,6 @@ impl TryInto<Vec<u8>> for Package255 {
     }
 }
 
-
 // TODO: Box some of the contents, so that not all instances of this enum are >= 101 Bytes
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Package {
@@ -440,7 +439,7 @@ impl Package {
         })
     }
 
-    pub fn package_type (&self) -> u8 {
+    pub fn package_type(&self) -> u8 {
         match self {
             Package::Type1(_) => 1,
             Package::Type2(_) => 2,

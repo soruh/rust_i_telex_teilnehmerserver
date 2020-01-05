@@ -3,17 +3,14 @@ use crate::{
     errors::MyErrorKind,
     packages::*,
     serde::{deserialize, serialize},
-    CLIENT_TIMEOUT, SERVER_PIN,
+    CLIENT_TIMEOUT, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION, SERVER_PIN,
 };
 
-use futures::{future::FutureExt, lock::Mutex, select, stream::StreamExt};
+use futures::{future::FutureExt, select, stream::StreamExt};
 
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
-use std::{
-    convert::TryInto,
-    net::{IpAddr, SocketAddr},
-};
+use std::{convert::TryInto, net::IpAddr};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -38,7 +35,7 @@ pub struct Client {
 }
 
 impl Drop for Client {
-    fn drop (&mut self) {
+    fn drop(&mut self) {
         if let Ok(addr) = self.socket.peer_addr() {
             debug!("dropping client at {}", addr);
         } else {
@@ -50,6 +47,7 @@ impl Drop for Client {
 
 impl Client {
     pub fn new(socket: TcpStream) -> Self {
+        info!("created new client");
         Self {
             socket,
             mode: Mode::Unknown,
@@ -59,12 +57,12 @@ impl Client {
     }
 
     pub async fn handle(&mut self) -> anyhow::Result<()> {
-        info!("handling client at: {}", self.socket.peer_addr().unwrap());
+        info!("handling client at: {}", self.socket.peer_addr()?);
 
         #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
         {
             select! {
-                _ = task::sleep(*CLIENT_TIMEOUT).fuse() => {
+                _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
                     bail!(MyErrorKind::Timeout);
                 }
                 res = self.peek_client_type().fuse() => {
@@ -82,7 +80,7 @@ impl Client {
             {
                 {
                     select! {
-                        _ = task::sleep(*CLIENT_TIMEOUT).fuse() => {
+                        _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
                             Err(MyErrorKind::Timeout)?;
                         }
                         res = self.consume_package().fuse() => {
@@ -99,14 +97,6 @@ impl Client {
         Ok(())
     }
 
-    pub async fn push(&mut self, entry: Package5) {
-        self.send_queue.push(entry);
-    }
-
-    pub async fn extend(&mut self, entries: Vec<Package5>) {
-        self.send_queue.extend(entries);
-    }
-
     pub async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
         debug!("sending package: {:#?}", package);
 
@@ -118,7 +108,10 @@ impl Client {
 
         let header = [package_type, package_length];
 
-        self.socket.write_all(&header).await.context(MyErrorKind::FailedToWrite)?;
+        self.socket
+            .write_all(&header)
+            .await
+            .context(MyErrorKind::FailedToWrite)?;
         self.socket
             .write_all(body.as_slice())
             .await
@@ -158,6 +151,8 @@ impl Client {
             }
         } else {
             self.send_package(Package::Type9(Package9 {})).await?;
+
+            self.shutdown()?; // TODO: check if this is correct (it should be)
         }
 
         Ok(())
@@ -214,7 +209,7 @@ impl Client {
             bail!(MyErrorKind::UserInputError);
         }
 
-        if line.chars().nth(0).unwrap() == 'q' {
+        if line.chars().nth(0).context(MyErrorKind::UserInputError)? == 'q' {
             let mut number = String::new();
 
             for character in line.chars().skip(1) {
@@ -234,9 +229,7 @@ impl Client {
 
             debug!("parsed number: '{}'", number);
 
-            let entry = get_entry_by_number(number, true)?;
-
-            let message = if let Some(entry) = entry {
+            let message = if let Some(entry) = get_public_entry_by_number(number).await {
                 let host_or_ip = if let Some(hostname) = entry.hostname {
                     hostname
                 } else {
@@ -260,10 +253,15 @@ impl Client {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)
             };
 
+            // self.socket
+            //     .write_all(message.as_bytes())
+            //     .await
+            //     .context(MyErrorKind::FailedToWrite)?;
+
             self.socket
                 .write_all(message.as_bytes())
                 .await
-                .context(MyErrorKind::FailedToWrite)?;
+                .context(MyErrorKind::FailedToWrite)?
         } else {
             bail!(MyErrorKind::UserInputError);
         }
@@ -291,23 +289,10 @@ impl Client {
 
         let mut body = vec![0_u8; package_length as usize];
 
-        // TODO: remove!
-        let mut read_total: usize = 0;
-        while read_total < package_length as usize {
-            read_total += self.socket
-                .read(&mut body[read_total..])
-                .await
-                .context(MyErrorKind::ConnectionCloseUnexpected)?;
-
-            debug!("read {}/{} bytes", read_total, package_length);
-        }
-
-        /*
         self.socket
             .read_exact(&mut body)
             .await
             .context(MyErrorKind::ConnectionCloseUnexpected)?;
-        */
 
         // debug!("body: {:?}", body);
 
@@ -328,42 +313,16 @@ impl Client {
                     bail!(MyErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                let peer_addr = self.socket.peer_addr().unwrap();
+                let peer_addr = self.socket.peer_addr()?;
 
-                let ipaddress = if let IpAddr::V4(ipaddress) = peer_addr.ip() {
-                    Ok(ipaddress)
-                } else {
-                    Err(MyErrorKind::UserInputError)
-                }?;
+                let ipaddress = match peer_addr.ip() {
+                    IpAddr::V4(ipaddress) => ipaddress,
 
-                let entry = get_entry_by_number(package.number, false)?;
-
-                if let Some(entry) = entry {
-                    if entry.client_type == 0 {
-                        register_entry(
-                            package.number,
-                            package.pin,
-                            package.port,
-                            u32::from(ipaddress),
-                            true,
-                        )?
-                        .expect("Failed to register entry"); // TODO: handle properly
-                    } else if package.pin == entry.pin {
-                        update_entry_address(package.port, u32::from(ipaddress), package.number)?
-                            .expect("Failed to update entry address"); // TODO: handle properly
-                    } else {
-                        bail!(MyErrorKind::UserInputError);
-                    }
-                } else {
-                    register_entry(
-                        package.number,
-                        package.pin,
-                        package.port,
-                        u32::from(ipaddress),
-                        false,
-                    )?
-                    .expect("Failed to register entry"); // TODO: handle properly
+                    // Note: Ipv6 addresses can't be handled by the itelex system
+                    _ => bail!(MyErrorKind::Ipv6Address),
                 };
+
+                update_or_register_entry(package, ipaddress).await?;
 
                 self.send_package(Package::Type2(Package2 { ipaddress }))
                     .await?;
@@ -376,9 +335,7 @@ impl Client {
                     bail!(MyErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                let entry = get_entry_by_number(package.number, true)?;
-
-                if let Some(entry) = entry {
+                if let Some(entry) = get_public_entry_by_number(package.number).await {
                     self.send_package(Package::Type5(entry)).await?;
                 } else {
                     self.send_package(Package::Type4(Package4 {})).await?;
@@ -392,29 +349,18 @@ impl Client {
                     bail!(MyErrorKind::InvalidState(State::Accepting, self.state));
                 }
 
-                upsert_entry(
-                    package.number,
-                    package.name,
-                    package.client_type,
-                    package.hostname,
-                    package.ipaddress,
-                    package.port,
-                    package.extension,
-                    package.pin,
-                    package.disabled,
-                    package.timestamp,
-                )?
-                .expect("Failed to sync entry"); // TODO: handle properly
+                update_entry_if_newer(package).await;
+
                 self.send_package(Package::Type8(Package8 {})).await?;
 
                 Ok(())
             }
             Package::Type6(package) => {
-                if package.version != 1 {
+                if package.version != FULL_QUERY_VERSION {
                     bail!(MyErrorKind::UserInputError);
                 }
                 if package.server_pin != SERVER_PIN {
-                    bail!(MyErrorKind::UserInputError);
+                    bail!(MyErrorKind::PasswordError);
                 }
                 if self.state != State::Idle {
                     bail!(MyErrorKind::InvalidState(State::Idle, self.state));
@@ -422,18 +368,18 @@ impl Client {
 
                 self.state = State::Responding;
 
-                self.extend(get_all_entries().await?).await;
+                self.send_queue.extend(get_all_entries().await);
 
                 self.send_queue_entry().await?;
 
                 Ok(())
             }
             Package::Type7(package) => {
-                if package.version != 1 {
+                if package.version != LOGIN_VERSION {
                     bail!(MyErrorKind::UserInputError);
                 }
                 if package.server_pin != SERVER_PIN {
-                    bail!(MyErrorKind::UserInputError);
+                    bail!(MyErrorKind::PasswordError);
                 }
                 if self.state != State::Idle {
                     bail!(MyErrorKind::InvalidState(State::Idle, self.state));
@@ -464,18 +410,18 @@ impl Client {
                 Ok(())
             }
             Package::Type10(package) => {
-                if package.version != 1 {
+                if package.version != PEER_SEARCH_VERSION {
                     bail!(MyErrorKind::UserInputError);
                 }
                 if self.state != State::Idle {
                     bail!(MyErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                let entries = get_public_entries_by_pattern(&package.pattern)?;
+                let entries = get_public_entries_by_pattern(&package.pattern).await;
 
                 self.state = State::Responding;
 
-                self.extend(entries).await;
+                self.send_queue.extend(entries);
 
                 self.send_queue_entry().await?;
 

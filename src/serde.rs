@@ -14,7 +14,7 @@ pub fn deserialize(package_type: u8, slice: &[u8]) -> anyhow::Result<Package> {
 mod tests {
     use super::{deserialize, serialize};
     use crate::packages::*;
-    use std::convert::{TryFrom, TryInto};
+
     use std::net::Ipv4Addr;
 
     fn test_both(package_type: u8, package: Package, serialized: Vec<u8>) {

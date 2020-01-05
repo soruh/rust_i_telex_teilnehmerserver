@@ -3,4 +3,5 @@
 .env
 /.idea
 /.vscode
-database.db
+database
+servers

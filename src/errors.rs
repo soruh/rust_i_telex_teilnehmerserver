@@ -12,6 +12,12 @@ pub enum MyErrorKind {
     #[error("Invalid user input.")]
     UserInputError,
 
+    #[error("Tried to update with an Ipv6 address")]
+    Ipv6Address,
+
+    #[error("Tried to use a wrong password")]
+    PasswordError,
+
     #[error("Failed to parse package of type {}.", _0)]
     ParseFailure(u8),
 
@@ -24,14 +30,15 @@ pub enum MyErrorKind {
     #[error("Client timed out.")]
     Timeout,
 
-    // TODO: remove
     #[cfg(debug_assertions)]
     #[error("Not Yet Implemented: {}:{}:{}", _0, _1, _2)]
     Unimplemented(&'static str, u32, u32),
 }
 
-
-// TODO: remove
+#[allow(unused_macros)]
+#[cfg(debug_assertions)]
 macro_rules! err_unimplemented {
-    () => {MyErrorKind::Unimplemented(file!(), line!(), column!())}
+    () => {
+        MyErrorKind::Unimplemented(file!(), line!(), column!())
+    };
 }
