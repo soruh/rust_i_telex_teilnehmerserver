@@ -1,18 +1,20 @@
 use crate::{
     db::*,
-    errors::MyErrorKind,
+    errors::ItelexServerErrorKind,
     packages::*,
     serde::{deserialize, serialize},
     CLIENT_TIMEOUT, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION, SERVER_PIN,
 };
-
-use futures::{future::FutureExt, select, stream::StreamExt};
-
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
-use std::{convert::TryInto, net::IpAddr};
+use futures::{future::FutureExt, select, stream::StreamExt};
+use std::{
+    convert::TryInto,
+    net::{IpAddr, SocketAddr},
+};
 
 #[derive(Debug, PartialEq, Eq)]
+
 pub enum Mode {
     Ascii,
     Binary,
@@ -20,6 +22,7 @@ pub enum Mode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+
 pub enum State {
     Idle,
     Responding,
@@ -29,6 +32,7 @@ pub enum State {
 
 pub struct Client {
     pub socket: TcpStream,
+    pub address: SocketAddr,
     pub mode: Mode,
     pub state: State,
     pub send_queue: Vec<Package5>,
@@ -36,34 +40,25 @@ pub struct Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        if let Ok(addr) = self.socket.peer_addr() {
-            debug!("dropping client at {}", addr);
-        } else {
-            debug!("dropping client");
-        }
+        debug!("dropping client at {}", self.address);
+
         let _ = self.shutdown();
     }
 }
 
 impl Client {
-    pub fn new(socket: TcpStream) -> Self {
-        info!("created new client");
-        Self {
-            socket,
-            mode: Mode::Unknown,
-            state: State::Idle,
-            send_queue: Vec::new(),
-        }
+    pub fn new(socket: TcpStream, address: SocketAddr) -> Self {
+        Self { socket, address, mode: Mode::Unknown, state: State::Idle, send_queue: Vec::new() }
     }
 
     pub async fn handle(&mut self) -> anyhow::Result<()> {
-        info!("handling client at: {}", self.socket.peer_addr()?);
+        info!("handling client at: {}", self.address);
 
         #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
         {
             select! {
                 _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
-                    bail!(MyErrorKind::Timeout);
+                    bail!(ItelexServerErrorKind::Timeout);
                 }
                 res = self.peek_client_type().fuse() => {
                     res?;
@@ -81,7 +76,7 @@ impl Client {
                 {
                     select! {
                         _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
-                            Err(MyErrorKind::Timeout)?;
+                            Err(ItelexServerErrorKind::Timeout)?;
                         }
                         res = self.consume_package().fuse() => {
                             res?;
@@ -108,14 +103,9 @@ impl Client {
 
         let header = [package_type, package_length];
 
-        self.socket
-            .write_all(&header)
-            .await
-            .context(MyErrorKind::FailedToWrite)?;
-        self.socket
-            .write_all(body.as_slice())
-            .await
-            .context(MyErrorKind::FailedToWrite)?;
+        self.socket.write_all(&header).await.context(ItelexServerErrorKind::FailedToWrite)?;
+
+        self.socket.write_all(body.as_slice()).await.context(ItelexServerErrorKind::FailedToWrite)?;
 
         Ok(())
     }
@@ -123,16 +113,14 @@ impl Client {
     pub fn shutdown(&mut self) -> std::result::Result<(), std::io::Error> {
         if self.state == State::Shutdown {
             debug!("tried to shut down client that was already shut down");
+
             return Ok(());
         }
 
-        if let Ok(addr) = self.socket.peer_addr() {
-            debug!("shutting down client at {}", addr);
-        } else {
-            debug!("shutting down client");
-        }
+        debug!("shutting down client at {}", self.address);
 
         self.state = State::Shutdown;
+
         self.socket.shutdown(std::net::Shutdown::Both)?;
 
         Ok(())
@@ -140,7 +128,7 @@ impl Client {
 
     pub async fn send_queue_entry(&mut self) -> anyhow::Result<()> {
         if self.state != State::Responding {
-            bail!(MyErrorKind::InvalidState(State::Responding, self.state));
+            bail!(ItelexServerErrorKind::InvalidState(State::Responding, self.state));
         }
 
         if let Some(package) = self.send_queue.pop() {
@@ -162,24 +150,17 @@ impl Client {
         assert_eq!(self.mode, Mode::Unknown);
 
         let mut buf = [0_u8; 1];
-        let len = self
-            .socket
-            .peek(&mut buf)
-            .await
-            .context(MyErrorKind::ConnectionCloseUnexpected)?; // read the first byte
+
+        let len = self.socket.peek(&mut buf).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?; // read the first byte
         if len == 0 {
-            bail!(MyErrorKind::ConnectionCloseUnexpected);
+            bail!(ItelexServerErrorKind::ConnectionCloseUnexpected);
         }
 
         let [first_byte] = buf;
 
         debug!("first byte: {:#04x}", first_byte);
 
-        self.mode = if first_byte >= 32 && first_byte <= 126 {
-            Mode::Ascii
-        } else {
-            Mode::Binary
-        };
+        self.mode = if first_byte >= 32 && first_byte <= 126 { Mode::Ascii } else { Mode::Binary };
 
         Ok(())
     }
@@ -187,11 +168,7 @@ impl Client {
     pub async fn consume_package(self: &mut Client) -> anyhow::Result<()> {
         assert_ne!(self.mode, Mode::Unknown);
 
-        if self.mode == Mode::Binary {
-            self.consume_package_binary().await
-        } else {
-            self.consume_package_ascii().await
-        }
+        if self.mode == Mode::Binary { self.consume_package_binary().await } else { self.consume_package_ascii().await }
     }
 
     pub async fn consume_package_ascii(self: &mut Client) -> anyhow::Result<()> {
@@ -200,32 +177,31 @@ impl Client {
         let line = lines
             .next()
             .await
-            .context(MyErrorKind::UserInputError)?
-            .context(MyErrorKind::ConnectionCloseUnexpected)?;
+            .context(ItelexServerErrorKind::UserInputError)?
+            .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
         debug!("full line: {}", line);
 
         if line.is_empty() {
-            bail!(MyErrorKind::UserInputError);
+            bail!(ItelexServerErrorKind::UserInputError);
         }
 
-        if line.chars().nth(0).context(MyErrorKind::UserInputError)? == 'q' {
+        if line.chars().nth(0).context(ItelexServerErrorKind::UserInputError)? == 'q' {
             let mut number = String::new();
 
             for character in line.chars().skip(1) {
                 let char_code = character as u8;
+
                 if char_code < 48 || char_code > 57 {
                     break; // number is over
                 }
+
                 number.push(character);
             }
 
             debug!("handling 'q' request");
 
-            let number = number
-                .as_str()
-                .parse::<u32>()
-                .context(MyErrorKind::UserInputError)?;
+            let number = number.as_str().parse::<u32>().context(ItelexServerErrorKind::UserInputError)?;
 
             debug!("parsed number: '{}'", number);
 
@@ -233,9 +209,8 @@ impl Client {
                 let host_or_ip = if let Some(hostname) = entry.hostname {
                     hostname
                 } else {
-                    let ipaddress = entry.ipaddress.expect(
-                        "database is incosistent: entry has neither hostname nor ipaddress",
-                    );
+                    let ipaddress =
+                        entry.ipaddress.expect("database is incosistent: entry has neither hostname nor ipaddress");
 
                     format!("{}", ipaddress)
                 };
@@ -253,17 +228,9 @@ impl Client {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)
             };
 
-            // self.socket
-            //     .write_all(message.as_bytes())
-            //     .await
-            //     .context(MyErrorKind::FailedToWrite)?;
-
-            self.socket
-                .write_all(message.as_bytes())
-                .await
-                .context(MyErrorKind::FailedToWrite)?
+            self.socket.write_all(message.as_bytes()).await.context(ItelexServerErrorKind::FailedToWrite)?
         } else {
-            bail!(MyErrorKind::UserInputError);
+            bail!(ItelexServerErrorKind::UserInputError);
         }
 
         self.shutdown()?;
@@ -273,29 +240,19 @@ impl Client {
 
     pub async fn consume_package_binary(self: &mut Client) -> anyhow::Result<()> {
         let mut header = [0_u8; 2];
-        self.socket
-            .read_exact(&mut header)
-            .await
-            .context(MyErrorKind::ConnectionCloseUnexpected)?;
+
+        self.socket.read_exact(&mut header).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
         // debug!("header: {:?}", header);
-
         let [package_type, package_length] = header;
 
-        debug!(
-            "reading package of type: {} with length: {}",
-            package_type, package_length
-        );
+        debug!("reading package of type: {} with length: {}", package_type, package_length);
 
         let mut body = vec![0_u8; package_length as usize];
 
-        self.socket
-            .read_exact(&mut body)
-            .await
-            .context(MyErrorKind::ConnectionCloseUnexpected)?;
+        self.socket.read_exact(&mut body).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
         // debug!("body: {:?}", body);
-
         let package = deserialize(package_type, body.as_slice())?.try_into()?;
 
         debug!("received package: {:#?}", package);
@@ -307,32 +264,30 @@ impl Client {
 
     pub async fn handle_package(self: &mut Client, package: Package) -> anyhow::Result<()> {
         debug!("state: '{:?}'", self.state);
+
         match package {
             Package::Type1(package) => {
                 if self.state != State::Idle {
-                    bail!(MyErrorKind::InvalidState(State::Idle, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                let peer_addr = self.socket.peer_addr()?;
-
-                let ipaddress = match peer_addr.ip() {
+                let ipaddress = match self.address.ip() {
                     IpAddr::V4(ipaddress) => ipaddress,
 
                     // Note: Ipv6 addresses can't be handled by the itelex system
-                    _ => bail!(MyErrorKind::Ipv6Address),
+                    _ => bail!(ItelexServerErrorKind::Ipv6Address),
                 };
 
                 update_or_register_entry(package, ipaddress).await?;
 
-                self.send_package(Package::Type2(Package2 { ipaddress }))
-                    .await?;
+                self.send_package(Package::Type2(Package2 { ipaddress })).await?;
 
                 Ok(())
             }
             // Package::Type2(package) => {}
             Package::Type3(package) => {
                 if self.state != State::Idle {
-                    bail!(MyErrorKind::InvalidState(State::Idle, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
                 if let Some(entry) = get_public_entry_by_number(package.number).await {
@@ -346,7 +301,7 @@ impl Client {
             // Package::Type4(_package) => {}
             Package::Type5(package) => {
                 if self.state != State::Accepting {
-                    bail!(MyErrorKind::InvalidState(State::Accepting, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
 
                 update_entry_if_newer(package).await;
@@ -357,13 +312,15 @@ impl Client {
             }
             Package::Type6(package) => {
                 if package.version != FULL_QUERY_VERSION {
-                    bail!(MyErrorKind::UserInputError);
+                    bail!(ItelexServerErrorKind::UserInputError);
                 }
+
                 if package.server_pin != SERVER_PIN {
-                    bail!(MyErrorKind::PasswordError);
+                    bail!(ItelexServerErrorKind::PasswordError);
                 }
+
                 if self.state != State::Idle {
-                    bail!(MyErrorKind::InvalidState(State::Idle, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
                 self.state = State::Responding;
@@ -376,14 +333,18 @@ impl Client {
             }
             Package::Type7(package) => {
                 if package.version != LOGIN_VERSION {
-                    bail!(MyErrorKind::UserInputError);
+                    bail!(ItelexServerErrorKind::UserInputError);
                 }
+
                 if package.server_pin != SERVER_PIN {
-                    bail!(MyErrorKind::PasswordError);
+                    bail!(ItelexServerErrorKind::PasswordError);
                 }
+
                 if self.state != State::Idle {
-                    bail!(MyErrorKind::InvalidState(State::Idle, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
+
+                warn!("receiving update from server {}", self.address);
 
                 self.state = State::Accepting;
 
@@ -393,7 +354,7 @@ impl Client {
             }
             Package::Type8(_package) => {
                 if self.state != State::Responding {
-                    bail!(MyErrorKind::InvalidState(State::Responding, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Responding, self.state));
                 }
 
                 self.send_queue_entry().await?;
@@ -402,7 +363,7 @@ impl Client {
             }
             Package::Type9(_package) => {
                 if self.state != State::Accepting {
-                    bail!(MyErrorKind::InvalidState(State::Accepting, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
 
                 self.shutdown()?;
@@ -411,10 +372,11 @@ impl Client {
             }
             Package::Type10(package) => {
                 if package.version != PEER_SEARCH_VERSION {
-                    bail!(MyErrorKind::UserInputError);
+                    bail!(ItelexServerErrorKind::UserInputError);
                 }
+
                 if self.state != State::Idle {
-                    bail!(MyErrorKind::InvalidState(State::Idle, self.state));
+                    bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
                 let entries = get_public_entries_by_pattern(&package.pattern).await;
@@ -429,7 +391,7 @@ impl Client {
             }
             Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message)),
 
-            _ => Err(MyErrorKind::UserInputError.into()),
+            _ => Err(ItelexServerErrorKind::UserInputError.into()),
         }
     }
 }

@@ -12,6 +12,6 @@ anyhow = "1.0.26"
 thiserror = "1.0.9"
 async-std = { version = "1.4.0", features = ["attributes"] }
 futures = "0.3.1"
-ctrlc = "3.1.3"
-log = { version = "0.4.8", features = ["release_max_level_warn"]}
+simple-signal = {version = "1.1.1"}
+log = { version = "0.4.8", features = ["release_max_level_info"]}
 simple_logger = "1.4.0"

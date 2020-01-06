@@ -2,7 +2,8 @@ use crate::State;
 use thiserror::Error;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Error)]
-pub enum MyErrorKind {
+
+pub enum ItelexServerErrorKind {
     #[error("Failed to write to the client socket.")]
     FailedToWrite,
 
@@ -37,8 +38,9 @@ pub enum MyErrorKind {
 
 #[allow(unused_macros)]
 #[cfg(debug_assertions)]
+
 macro_rules! err_unimplemented {
     () => {
-        MyErrorKind::Unimplemented(file!(), line!(), column!())
+        ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
     };
 }
