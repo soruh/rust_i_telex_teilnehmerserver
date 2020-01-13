@@ -1,20 +1,11 @@
 use std::{
     convert::{TryFrom, TryInto},
     ffi::CString,
+    io::Write,
     net::Ipv4Addr,
 };
 
-// !
-// This
-// is
-// disgusting,
-// but
-// neccessary
-// until
-// we
-// get
-// const
-// generics
+// ! This is disgusting, but neccessary until we get const generics
 pub struct ArrayImplWrapper<'a>(&'a [u8]);
 
 impl<'a> TryInto<[u8; LENGTH_TYPE_5]> for ArrayImplWrapper<'a> {
@@ -54,29 +45,18 @@ impl<'a> TryInto<[u8; LENGTH_TYPE_10]> for ArrayImplWrapper<'a> {
 }
 
 use crate::errors::ItelexServerErrorKind;
-
 pub const LENGTH_TYPE_1: usize = 8;
-
 pub const LENGTH_TYPE_2: usize = 4;
-
 pub const LENGTH_TYPE_3: usize = 5;
-
 pub const LENGTH_TYPE_4: usize = 0;
-
 pub const LENGTH_TYPE_5: usize = 100;
-
 pub const LENGTH_TYPE_6: usize = 5;
-
 pub const LENGTH_TYPE_7: usize = 5;
-
 pub const LENGTH_TYPE_8: usize = 0;
-
 pub const LENGTH_TYPE_9: usize = 0;
-
 pub const LENGTH_TYPE_10: usize = 41;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package1 {
     pub number: u32,
     pub pin: u16,
@@ -84,24 +64,20 @@ pub struct Package1 {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package2 {
     pub ipaddress: Ipv4Addr,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package3 {
     pub number: u32,
     pub version: u8,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package4 {}
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package5 {
     pub number: u32,
     pub name: String,
@@ -116,41 +92,33 @@ pub struct Package5 {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package6 {
     pub version: u8,
     pub server_pin: u32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package7 {
     pub version: u8,
     pub server_pin: u32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package8 {}
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package9 {}
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package10 {
     pub version: u8,
     pub pattern: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub struct Package255 {
     pub message: String,
 }
-
-use std::io::Write;
 
 impl TryFrom<&[u8]> for Package1 {
     type Error = anyhow::Error;
@@ -483,10 +451,9 @@ impl TryInto<Vec<u8>> for Package255 {
     }
 }
 
-// TODO: Box some of the contents, so that not all instances of this enum are >=
-// 101 Bytes
+// TODO: Box some of the contents, so that not all instances
+// TODO: of this enum are >= 101 Bytes
 #[derive(Debug, Eq, PartialEq, Clone)]
-
 pub enum Package {
     Type1(Package1),
     Type2(Package2),
@@ -560,7 +527,7 @@ impl TryInto<Vec<u8>> for Package {
 fn array_from_string(mut input: String) -> [u8; 40] {
     let mut buf: [u8; 40] = [0; 40];
 
-    input.truncate(39);
+    input.truncate(39); // ensure we don't write over capaciry and leave one 0 byte at the end
 
     for (i, b) in input.into_bytes().into_iter().enumerate() {
         buf[i] = b;

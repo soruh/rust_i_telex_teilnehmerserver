@@ -80,6 +80,8 @@ async fn main() -> anyhow::Result<()> {
 
     CONFIG.set(Config::from_env()?).expect("Failed to set config");
 
+    debug!("using config: {:#?}", CONFIG.get().unwrap());
+
     if config!(SERVER_PIN) == 0 {
         warn!(
             "The server is running without a SERVER_PIN. Server interaction will be reduced to publicly available \
@@ -510,7 +512,7 @@ async fn connect_to(addr: SocketAddr) -> anyhow::Result<Client> {
 
 async fn update_server_with_packages(server: SocketAddr, packages: Vec<Package5>) -> anyhow::Result<()> {
     if config!(SERVER_PIN) == 0 {
-        bail!(anyhow!("Not updating other servers with an empty server pin"));
+        bail!(anyhow!("Not updating other servers without a server pin"));
     }
 
     let mut client = connect_to(server).await?;
