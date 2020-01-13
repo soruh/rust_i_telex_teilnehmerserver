@@ -302,9 +302,7 @@ impl TryInto<Vec<u8>> for Package1 {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_1);
 
         res.write_all(&self.number.to_le_bytes())?;
-
         res.write_all(&self.pin.to_le_bytes())?;
-
         res.write_all(&self.port.to_le_bytes())?;
 
         Ok(res)
@@ -351,26 +349,17 @@ impl TryInto<Vec<u8>> for Package5 {
     fn try_into(self: Package5) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_5);
 
-        res.write_all(&self.number.to_le_bytes())?;
-
-        res.write_all(&array_from_string(self.name))?;
-
         let flags: u16 = if self.disabled { 0x02 } else { 0 };
 
+        res.write_all(&self.number.to_le_bytes())?;
+        res.write_all(&array_from_string(self.name))?;
         res.write_all(&flags.to_le_bytes())?;
-
         res.write_all(&self.client_type.to_le_bytes())?;
-
         res.write_all(&array_from_string(self.hostname.unwrap_or(String::new())))?;
-
         res.write_all(&self.ipaddress.map(|e| e.octets()).unwrap_or([0, 0, 0, 0]))?;
-
         res.write_all(&self.port.to_le_bytes())?;
-
         res.write_all(&self.extension.to_le_bytes())?;
-
         res.write_all(&self.pin.to_le_bytes())?;
-
         res.write_all(&self.timestamp.to_le_bytes())?;
 
         Ok(res)
