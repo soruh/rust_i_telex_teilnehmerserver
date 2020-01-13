@@ -1,4 +1,4 @@
-use crate::{errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, CHANGED, DATABASE, SERVER_PIN};
+use crate::{errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, CHANGED, CONFIG, DATABASE};
 use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
 use std::{convert::TryInto, net::Ipv4Addr};
@@ -8,7 +8,7 @@ static FS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 pub async fn sync_db_to_disk() -> anyhow::Result<()> {
     use fs::{copy, remove_file, File};
 
-    if SERVER_PIN == 0 {
+    if config!(SERVER_PIN) == 0 {
         warn!("Refused to sync DB to disk, so that no important data is overwritten.");
 
         return Ok(());
@@ -18,7 +18,7 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 
     info!("Syncing DB to disk");
 
-    let mut temp_file: File = File::create(crate::DB_PATH_TEMP).await?;
+    let mut temp_file: File = File::create(&config!(DB_PATH_TEMP)).await?;
 
     for (_, entry) in DATABASE.read().await.iter() {
         let buffer: Vec<u8> = entry.clone().try_into()?;
@@ -32,9 +32,9 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 
     debug!("replacing database with temp file");
 
-    copy(crate::DB_PATH_TEMP, crate::DB_PATH).await?;
+    copy(&config!(DB_PATH_TEMP), &config!(DB_PATH)).await?;
 
-    remove_file(crate::DB_PATH_TEMP).await?;
+    remove_file(&config!(DB_PATH_TEMP)).await?;
 
     // NOTE: we do not use rename here to make sure we only delete the temp file
     // only gets deleted if we successfully copied it to the final file
@@ -52,7 +52,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
 
     info!("Reading entries from disk");
 
-    let db_path = Path::new(crate::DB_PATH);
+    let db_path = Path::new(&config!(DB_PATH));
 
     if !db_path.exists() {
         warn!("The database could not be found on disk. It will be created on the next sync.");
@@ -85,7 +85,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
         packages.push(Package5::try_from(&buffer as &[u8])?);
     }
 
-    if SERVER_PIN == 0 {
+    if config!(SERVER_PIN) == 0 {
         warn!(
             "Removing pins from read DB entries and removing private ones as to not leak them, since we are running \
              without a SERVER_PIN"

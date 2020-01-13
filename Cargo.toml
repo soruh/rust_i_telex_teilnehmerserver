@@ -15,3 +15,4 @@ futures = "0.3.1"
 simple-signal = {version = "1.1.1"}
 log = { version = "0.4.8", features = ["release_max_level_info"]}
 simple_logger = "1.4.0"
+dotenv = "0.15.0"

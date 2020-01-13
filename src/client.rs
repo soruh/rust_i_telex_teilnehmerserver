@@ -3,7 +3,7 @@ use crate::{
     errors::ItelexServerErrorKind,
     packages::*,
     serde::{deserialize, serialize},
-    CLIENT_TIMEOUT, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION, SERVER_PIN,
+    CONFIG, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION,
 };
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
@@ -57,7 +57,7 @@ impl Client {
         #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
         {
             select! {
-                _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
+                _ = task::sleep(config!(CLIENT_TIMEOUT)).fuse() => {
                     bail!(ItelexServerErrorKind::Timeout);
                 }
                 res = self.peek_client_type().fuse() => {
@@ -75,7 +75,7 @@ impl Client {
             {
                 {
                     select! {
-                        _ = task::sleep(CLIENT_TIMEOUT).fuse() => {
+                        _ = task::sleep(config!(CLIENT_TIMEOUT)).fuse() => {
                             Err(ItelexServerErrorKind::Timeout)?;
                         }
                         res = self.consume_package().fuse() => {
@@ -315,7 +315,7 @@ impl Client {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
 
-                if package.server_pin != SERVER_PIN {
+                if package.server_pin != config!(SERVER_PIN) {
                     bail!(ItelexServerErrorKind::PasswordError);
                 }
 
@@ -336,7 +336,7 @@ impl Client {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
 
-                if package.server_pin != SERVER_PIN {
+                if package.server_pin != config!(SERVER_PIN) {
                     bail!(ItelexServerErrorKind::PasswordError);
                 }
 

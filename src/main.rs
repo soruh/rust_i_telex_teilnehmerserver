@@ -5,7 +5,14 @@
 
 #[macro_use] extern crate log;
 
+macro_rules! config {
+    ($key:ident) => {
+        CONFIG.get().unwrap().$key
+    };
+}
+
 pub mod client;
+pub mod config;
 pub mod db;
 pub mod errors;
 pub mod packages;
@@ -21,6 +28,7 @@ use async_std::{
     task,
 };
 use client::{Client, Mode, State};
+use config::Config;
 use db::*;
 use futures::{
     channel::{mpsc, oneshot},
@@ -44,17 +52,7 @@ pub fn get_current_itelex_timestamp() -> u32 {
 }
 
 // Configuration
-//TODO: use config file or env (or .env file?)
-const CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
-const SERVER_COOLDOWN: Duration = Duration::from_secs(30);
-const CHANGED_SYNC_INTERVAL: Duration = Duration::from_secs(30);
-const DB_SYNC_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const FULL_QUERY_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
-const SERVER_PORT: u16 = 11814;
-const SERVER_PIN: u32 = 0;
-const DB_PATH: &str = "./database";
-const DB_PATH_TEMP: &str = "./database.temp";
-const SERVER_FILE_PATH: &str = "./servers";
+pub static CONFIG: OnceCell<Config> = OnceCell::new();
 
 // Actual constants
 const PEER_SEARCH_VERSION: u8 = 1;
@@ -72,7 +70,13 @@ pub static DATABASE: Lazy<RwLock<HashMap<u32, Package5>>> = Lazy::new(|| RwLock:
 async fn main() -> anyhow::Result<()> {
     simple_logger::init().unwrap();
 
-    if SERVER_PIN == 0 {
+    if let Err(err) = dotenv::dotenv() {
+        error!("Failed to load configuration from `.env` file: {}", err);
+    }
+
+    CONFIG.set(Config::from_env()?).expect("Failed to set config");
+
+    if config!(SERVER_PIN) == 0 {
         warn!(
             "The server is running without a SERVER_PIN. Server interaction will be reduced to publicly available \
              levels. DB sync will be disabled so that no private state is overwritten."
@@ -134,13 +138,13 @@ async fn listen_for_connections(
 ) -> anyhow::Result<task::JoinHandle<()>> {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    let ipv4_listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, SERVER_PORT)).await?;
-    let ipv6_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, SERVER_PORT)).await.ok();
+    let ipv4_listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, config!(SERVER_PORT))).await?;
+    let ipv6_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, config!(SERVER_PORT))).await.ok();
 
     let mut stop_the_loop = stop_the_loop.fuse();
 
     Ok(task::spawn(async move {
-        info!("listening for connections on port {}", SERVER_PORT);
+        info!("listening for connections on port {}", config!(SERVER_PORT));
 
         if let Some(ipv6_listener) = ipv6_listener {
             loop {
@@ -175,7 +179,7 @@ async fn read_fs_data() -> anyhow::Result<()> {
             SERVERS.set(servers).expect("Failed to set server list");
         }
         Err(err) => {
-            error!("Failed to read server list from {}: {}", SERVER_FILE_PATH, err);
+            error!("Failed to read server list from {}: {}", config!(SERVER_FILE_PATH), err);
 
             bail!(err);
         }
@@ -183,7 +187,7 @@ async fn read_fs_data() -> anyhow::Result<()> {
 
     if let Err(err) = read_db_from_disk().await {
         error!("Failed to restore DB from disk: {}", err);
-        error!("repair or delete {:?}", DB_PATH);
+        error!("repair or delete {:?}", config!(DB_PATH));
         // TODO: be smarter (try to restore from .temp etc.)
         // ? should we really be smarter or is that the responibility of the user ?
         bail!(err);
@@ -200,9 +204,7 @@ fn register_exit_handler() -> oneshot::Receiver<()> {
     let stop_accept_loop = RefCell::new(Some(stop_accept_loop));
 
     set_handler(&[Signal::Int, Signal::Term], move |signals| {
-        let stop_accept_loop = stop_accept_loop.replace(None);
-
-        if let Some(stop_accept_loop) = stop_accept_loop {
+        if let Some(stop_accept_loop) = stop_accept_loop.replace(None) {
             warn!("got first exit signal {:?}: attempting to shut down gracefully", signals);
 
             stop_accept_loop.send(()).unwrap();
@@ -225,7 +227,7 @@ async fn read_servers() -> anyhow::Result<Vec<SocketAddr>> {
 
     let mut servers = Vec::new();
 
-    match File::open(SERVER_FILE_PATH).await {
+    match File::open(&config!(SERVER_FILE_PATH)).await {
         Ok(file) => {
             let mut lines = BufReader::new(file).lines();
 
@@ -249,10 +251,10 @@ async fn read_servers() -> anyhow::Result<Vec<SocketAddr>> {
                 bail!(anyhow!("Failed to open server list: {}", err));
             }
 
-            if let Err(err) = File::create(SERVER_FILE_PATH).await {
+            if let Err(err) = File::create(&config!(SERVER_FILE_PATH)).await {
                 bail!(anyhow!("Failed to create new server list: {}", err));
             } else {
-                warn!("created new server list at {}", SERVER_FILE_PATH);
+                warn!("created new server list at {}", config!(SERVER_FILE_PATH));
             }
         }
     }
@@ -358,7 +360,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(DB_SYNC_INTERVAL).fuse() => continue,
+                _ = task::sleep(config!(DB_SYNC_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -378,7 +380,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(CHANGED_SYNC_INTERVAL).fuse() => continue,
+                _ = task::sleep(config!(CHANGED_SYNC_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -398,7 +400,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(FULL_QUERY_INTERVAL).fuse() => continue,
+                _ = task::sleep(config!(FULL_QUERY_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -444,12 +446,12 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
 
     client.state = State::Accepting;
 
-    let pkg = if SERVER_PIN == 0 {
+    let pkg = if config!(SERVER_PIN) == 0 {
         warn!("Sending empty peer search instead of full query, because no server pin was specified");
 
         Package::Type10(Package10 { version: PEER_SEARCH_VERSION, pattern: String::from("") })
     } else {
-        Package::Type6(Package6 { version: FULL_QUERY_VERSION, server_pin: SERVER_PIN })
+        Package::Type6(Package6 { version: FULL_QUERY_VERSION, server_pin: config!(SERVER_PIN) })
     };
 
     client.send_package(pkg).await?;
@@ -496,7 +498,7 @@ async fn connect_to(addr: SocketAddr) -> anyhow::Result<Client> {
 }
 
 async fn update_server_with_packages(server: SocketAddr, packages: Vec<Package5>) -> anyhow::Result<()> {
-    if SERVER_PIN == 0 {
+    if config!(SERVER_PIN) == 0 {
         bail!(anyhow!("Not updating other servers with an empty server pin"));
     }
 
@@ -506,7 +508,7 @@ async fn update_server_with_packages(server: SocketAddr, packages: Vec<Package5>
 
     client.state = State::Responding;
 
-    client.send_package(Package::Type7(Package7 { server_pin: SERVER_PIN, version: LOGIN_VERSION })).await?;
+    client.send_package(Package::Type7(Package7 { server_pin: config!(SERVER_PIN), version: LOGIN_VERSION })).await?;
 
     start_handling_client(client).await
 }
@@ -565,11 +567,11 @@ fn update_other_servers(
                 while let Err(err) = update_server_with_packages(server, packages.clone()).await {
                     error!("Failed to update server {}: {:?}", server, err);
 
-                    info!("retrying in: {:?}", SERVER_COOLDOWN);
+                    info!("retrying in: {:?}", config!(SERVER_COOLDOWN));
 
                     select! {
                         res = abort_receiver => if res.is_ok() { break 'outer; },
-                        _ = task::sleep(SERVER_COOLDOWN).fuse() => {},
+                        _ = task::sleep(config!(SERVER_COOLDOWN)).fuse() => {},
                     }
                 }
             }
