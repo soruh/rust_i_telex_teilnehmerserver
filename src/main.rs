@@ -11,16 +11,18 @@ macro_rules! config {
     };
 }
 
+#[macro_use]
+pub mod errors;
 pub mod client;
 pub mod config;
 pub mod db;
-pub mod errors;
 pub mod packages;
 pub mod serde;
 
 pub use errors::ItelexServerErrorKind;
 pub use packages::*;
 
+use anyhow::Context;
 use async_std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
@@ -68,10 +70,12 @@ pub static DATABASE: Lazy<RwLock<HashMap<u32, Package5>>> = Lazy::new(|| RwLock:
 
 #[async_std::main]
 async fn main() -> anyhow::Result<()> {
-    simple_logger::init().unwrap();
+    simple_logger::init().expect("Failed to initialize logger");
 
     if let Err(err) = dotenv::dotenv() {
-        error!("Failed to load configuration from `.env` file: {}", err);
+        if !err.not_found() {
+            bail!(anyhow!(err).context("Failed to load configuration from `.env` file"));
+        }
     }
 
     CONFIG.set(Config::from_env()?).expect("Failed to set config");
@@ -93,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
 
     match listen_for_connections(register_exit_handler(), watchdog_sender).await {
         Ok(accept_loop) => accept_loop.await, // Wait for accept loop to end
-        Err(err) => error!("Failed to start accept loop: {}", err),
+        Err(err) => error!("{:?}", anyhow!(err).context("Failed to start accept loop")),
     }
 
     warn!("shutting down");
@@ -123,12 +127,12 @@ async fn register_client(
     match listen_res {
         Ok((socket, addr)) => {
             if let Err(err) = watchdog_sender.send(start_handling_client(Client::new(socket, addr))).await {
-                error!("Failed to register new client: {}", err);
+                error!("{:?}", anyhow!(err).context("Failed to register new client"));
             } else {
                 info!("Info new connection from {}", addr);
             }
         }
-        Err(err) => error!("Failed to accept a client: {}", err),
+        Err(err) => error!("{:?}", anyhow!(err).context("Failed to accept a client")),
     }
 }
 
@@ -179,14 +183,17 @@ async fn read_fs_data() -> anyhow::Result<()> {
             SERVERS.set(servers).expect("Failed to set server list");
         }
         Err(err) => {
-            error!("Failed to read server list from {}: {}", config!(SERVER_FILE_PATH), err);
+            let err = anyhow!(err).context(format!("Failed to read server list from {}", config!(SERVER_FILE_PATH)));
+
+            error!("{:?}", err);
 
             bail!(err);
         }
     }
 
     if let Err(err) = read_db_from_disk().await {
-        error!("Failed to restore DB from disk: {}", err);
+        let err = err.context("Failed to restore DB from disk");
+        error!("{:?}", err);
         error!("repair or delete {:?}", config!(DB_PATH));
         // TODO: be smarter (try to restore from .temp etc.)
         // ? should we really be smarter or is that the responibility of the user ?
@@ -248,11 +255,11 @@ async fn read_servers() -> anyhow::Result<Vec<SocketAddr>> {
         }
         Err(err) => {
             if err.kind() != ErrorKind::NotFound {
-                bail!(anyhow!("Failed to open server list: {}", err));
+                bail!(anyhow!(err).context("Failed to open server list"));
             }
 
             if let Err(err) = File::create(&config!(SERVER_FILE_PATH)).await {
-                bail!(anyhow!("Failed to create new server list: {}", err));
+                bail!(anyhow!(err).context("Failed to create new server list"));
             } else {
                 warn!("created new server list at {}", config!(SERVER_FILE_PATH));
             }
@@ -356,7 +363,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = sync_db_to_disk().await {
-                error!("failed to run background task {:?}: {:?}", name, err);
+                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
             }
             select! {
                 _ = exit => break,
@@ -376,7 +383,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = sync_changed(&mut server_senders).await {
-                error!("failed to run background task {:?}: {:?}", name, err);
+                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
             }
             select! {
                 _ = exit => break,
@@ -396,7 +403,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = full_query().await {
-                error!("failed to run background task {:?}: {:?}", name, err);
+                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
             }
             select! {
                 _ = exit => break,
@@ -415,8 +422,6 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
     let addr = client.address;
 
     if let Err(error) = result.as_ref() {
-        warn!("client at {} had an error: {}", addr, error);
-
         let message = format!("The server encountered an error: {}\r\n", error);
 
         if client.mode == Mode::Binary {
@@ -429,7 +434,13 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
     }
 
     if let Err(error) = client.shutdown() {
-        debug!("Failed to shut down client at {}: {}", addr, error);
+        debug!("{:?}", anyhow!(error).context(format!("Failed to shut down client at {}", addr)));
+    }
+
+    let result = result.context("client error");
+
+    if let Err(err) = result.as_ref() {
+        warn!("{:?}", err);
     }
 
     result
@@ -474,7 +485,7 @@ async fn full_query() -> anyhow::Result<()> {
 
     for result in futures::future::join_all(full_queries).await {
         if let Err(err) = result {
-            error!("A full query failed: {}", err);
+            error!("{:?}", anyhow!(err).context("A full query failed"));
         }
     }
 
@@ -565,7 +576,7 @@ fn update_other_servers(
                 }
 
                 while let Err(err) = update_server_with_packages(server, packages.clone()).await {
-                    error!("Failed to update server {}: {:?}", server, err);
+                    error!("{:?}", anyhow!(err).context(format!("Failed to update server {}", server)));
 
                     info!("retrying in: {:?}", config!(SERVER_COOLDOWN));
 

@@ -38,7 +38,6 @@ pub enum ItelexServerErrorKind {
 
 #[allow(unused_macros)]
 #[cfg(debug_assertions)]
-
 macro_rules! err_unimplemented {
     () => {
         ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
