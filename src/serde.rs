@@ -1,14 +1,18 @@
 use crate::packages::*;
 use std::convert::TryInto;
 
-#[must_use]
-
 pub fn serialize(package: Package) -> anyhow::Result<Vec<u8>> {
-    Ok(package.try_into()?)
+    debug!("serializing: {:?}", package);
+    let res = package.try_into()?;
+    debug!("serialized: {:?}", res);
+    Ok(res)
 }
 
 pub fn deserialize(package_type: u8, slice: &[u8]) -> anyhow::Result<Package> {
-    Package::parse(package_type, slice)
+    debug!("parsing ({}): {:?}", package_type, slice);
+    let res = Package::parse(package_type, slice)?;
+    debug!("parsed: {:?}", res);
+    Ok(res)
 }
 
 #[cfg(test)]

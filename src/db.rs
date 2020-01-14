@@ -257,15 +257,7 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 pub async fn get_public_entries_by_pattern(pattern: &str) -> Vec<Package5> {
     let words: Vec<&str> = pattern.split(" ").collect();
 
-    let matching_entries = DATABASE
-        .read()
-        .await
-        .iter()
-        .filter(|(_, e)| pattern_matches(&words, &e.name))
-        .map(|(_, e)| e.clone())
-        .collect();
-
-    matching_entries
+    DATABASE.read().await.iter().filter(|(_, e)| pattern_matches(&words, &e.name)).map(|(_, e)| e.clone()).collect()
 }
 
 pub async fn get_entry_by_number(number: u32) -> Option<Package5> {

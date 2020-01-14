@@ -1,4 +1,5 @@
 #![warn(clippy::all, clippy::nursery)]
+#![allow(clippy::unnecessary_mut_passed)] // TODO: remove
 
 #[macro_use]
 extern crate anyhow;
@@ -476,7 +477,7 @@ async fn full_query() -> anyhow::Result<()> {
     info!("starting full query");
 
     for server in config!(SERVERS).iter() {
-        full_queries.push(full_query_for_server(server.clone()));
+        full_queries.push(full_query_for_server(*server));
     }
 
     for result in futures::future::join_all(full_queries).await {

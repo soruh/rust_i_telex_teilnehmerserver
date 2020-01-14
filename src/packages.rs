@@ -32,7 +32,7 @@ impl<'a> TryInto<[u8; LENGTH_TYPE_10]> for ArrayImplWrapper<'a> {
     fn try_into(self) -> Result<[u8; LENGTH_TYPE_10], Self::Error> {
         let mut res = [0_u8; LENGTH_TYPE_10];
 
-        for (i, b) in self.0.into_iter().enumerate() {
+        for (i, b) in self.0.iter().enumerate() {
             if i < LENGTH_TYPE_10 {
                 res[i] = *b;
             } else {
@@ -201,14 +201,22 @@ impl TryFrom<&[u8]> for Package5 {
             hostname: {
                 let hostname = string_from_slice(&slice[47..87])?;
 
-                if hostname.is_empty() { None } else { Some(hostname) }
+                if hostname.is_empty() {
+                    None
+                } else {
+                    Some(hostname)
+                }
             },
             ipaddress: {
                 let octets: [u8; 4] = slice[87..91].try_into()?;
 
                 let ipaddress = Ipv4Addr::from(octets);
 
-                if ipaddress.is_unspecified() { None } else { Some(ipaddress) }
+                if ipaddress.is_unspecified() {
+                    None
+                } else {
+                    Some(ipaddress)
+                }
             },
             port: u16::from_le_bytes(slice[91..93].try_into()?),
             extension: u8::from_le_bytes(slice[93..94].try_into()?),
@@ -291,7 +299,7 @@ impl TryFrom<&[u8]> for Package255 {
     type Error = anyhow::Error;
 
     fn try_from(slice: &[u8]) -> anyhow::Result<Self> {
-        Ok(Self { message: string_from_slice(&slice)? })
+        Ok(Self { message: string_from_slice(slice)? })
     }
 }
 
@@ -355,7 +363,7 @@ impl TryInto<Vec<u8>> for Package5 {
         res.write_all(&array_from_string(self.name))?;
         res.write_all(&flags.to_le_bytes())?;
         res.write_all(&self.client_type.to_le_bytes())?;
-        res.write_all(&array_from_string(self.hostname.unwrap_or(String::new())))?;
+        res.write_all(&array_from_string(self.hostname.unwrap_or_default()))?;
         res.write_all(&self.ipaddress.map(|e| e.octets()).unwrap_or([0, 0, 0, 0]))?;
         res.write_all(&self.port.to_le_bytes())?;
         res.write_all(&self.extension.to_le_bytes())?;
@@ -528,8 +536,8 @@ fn array_from_string(mut input: String) -> [u8; 40] {
 fn string_from_slice(slice: &[u8]) -> anyhow::Result<String> {
     let mut end_of_content = slice.len();
 
-    for i in 0..slice.len() {
-        if slice[i] == 0 {
+    for (i, val) in slice.iter().enumerate() {
+        if *val == 0 {
             end_of_content = i;
 
             break;
