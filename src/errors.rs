@@ -44,6 +44,7 @@ macro_rules! err_unimplemented {
     };
 }
 
+#[allow(unused_macros)]
 #[cfg(debug_assertions)]
 macro_rules! err_unimplemented {
     () => {
