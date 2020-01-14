@@ -14,7 +14,7 @@ impl<'a> TryInto<[u8; LENGTH_TYPE_5]> for ArrayImplWrapper<'a> {
     fn try_into(self) -> Result<[u8; LENGTH_TYPE_5], Self::Error> {
         let mut res = [0_u8; LENGTH_TYPE_5];
 
-        for (i, b) in self.0.into_iter().enumerate() {
+        for (i, b) in self.0.iter().enumerate() {
             if i < LENGTH_TYPE_5 {
                 res[i] = *b;
             } else {
@@ -93,20 +93,17 @@ pub struct Package5 {
 
 impl Package5 {
     pub fn extension_as_str(&self) -> String {
-        let extension = self.extension;
-        if extension == 0 {
-            "-".into()
-        } else if extension < 100 {
-            extension.to_string()
-        } else if extension == 100 {
-            "00".into()
-        } else if extension > 100 && extension < 110 {
-            (extension - 100).to_string()
-        } else if extension == 110 {
-            "0".into()
-        } else {
-            warn!("entry has invalid extension");
-            "-".into()
+        match self.extension {
+            0 => "-".into(),
+            100 => "00".into(),
+            110 => "0".into(),
+            x if x < 100 => x.to_string(),
+            x if x > 100 && x < 110 => (x - 100).to_string(),
+            // x if x > 110 => {
+            x => {
+                warn!("entry has invalid extension: {}", x);
+                "-".into()
+            }
         }
     }
 }
@@ -192,6 +189,7 @@ impl TryFrom<&[u8]> for Package3 {
 impl TryFrom<&[u8]> for Package4 {
     type Error = anyhow::Error;
 
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn try_from(slice: &[u8]) -> anyhow::Result<Self> {
         if slice.len() < LENGTH_TYPE_4 {
             bail!(ItelexServerErrorKind::ParseFailure(4))
@@ -279,6 +277,7 @@ impl TryFrom<&[u8]> for Package7 {
 impl TryFrom<&[u8]> for Package8 {
     type Error = anyhow::Error;
 
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn try_from(slice: &[u8]) -> anyhow::Result<Self> {
         if slice.len() < LENGTH_TYPE_8 {
             bail!(ItelexServerErrorKind::ParseFailure(8))
@@ -291,6 +290,7 @@ impl TryFrom<&[u8]> for Package8 {
 impl TryFrom<&[u8]> for Package9 {
     type Error = anyhow::Error;
 
+    #[allow(clippy::absurd_extreme_comparisons)]
     fn try_from(slice: &[u8]) -> anyhow::Result<Self> {
         if slice.len() < LENGTH_TYPE_9 {
             bail!(ItelexServerErrorKind::ParseFailure(9))

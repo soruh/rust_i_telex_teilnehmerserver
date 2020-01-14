@@ -1,4 +1,6 @@
-use crate::{errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, CHANGED, CONFIG, DATABASE};
+use crate::{
+    errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Packages, CHANGED, CONFIG, DATABASE,
+};
 use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
 use std::{convert::TryInto, net::Ipv4Addr};
@@ -91,7 +93,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
              without a SERVER_PIN"
         );
 
-        let private_packages: Vec<Package5> = packages.drain(..).collect();
+        let private_packages: Packages = packages.drain(..).collect();
 
         for mut package in private_packages.into_iter() {
             if !package.disabled {
@@ -117,8 +119,8 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn get_changed_entries() -> Vec<Package5> {
-    let mut changed_entries: Vec<Package5> = Vec::new();
+pub async fn get_changed_entries() -> Packages {
+    let mut changed_entries: Packages = Vec::new();
 
     {
         let db = DATABASE.read().await;
@@ -137,7 +139,7 @@ pub async fn get_changed_entries() -> Vec<Package5> {
     changed_entries
 }
 
-pub async fn get_all_entries() -> Vec<Package5> {
+pub async fn get_all_entries() -> Packages {
     DATABASE.write().await.iter().map(|(_, package)| package.clone()).collect()
 }
 
@@ -257,14 +259,14 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
     true
 }
 
-pub async fn get_public_entries_by_pattern(pattern: &str) -> Vec<Package5> {
+pub async fn get_public_entries_by_pattern(pattern: &str) -> Packages {
     let words: Vec<&str> = pattern.split(' ').collect();
 
     DATABASE.read().await.iter().filter(|(_, e)| pattern_matches(&words, &e.name)).map(|(_, e)| e.clone()).collect()
 }
 
 pub async fn get_entry_by_number(number: u32) -> Option<Package5> {
-    DATABASE.read().await.get(&number).map(|e| e.clone())
+    DATABASE.read().await.get(&number).cloned()
 }
 
 pub async fn get_public_entry_by_number(number: u32) -> Option<Package5> {

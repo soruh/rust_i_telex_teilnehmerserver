@@ -3,7 +3,7 @@ use crate::{
     errors::ItelexServerErrorKind,
     packages::*,
     serde::{deserialize, serialize},
-    CONFIG, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION,
+    Packages, CONFIG, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION,
 };
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
@@ -35,7 +35,7 @@ pub struct Client {
     pub address: SocketAddr,
     pub mode: Mode,
     pub state: State,
-    pub send_queue: Vec<Package5>,
+    pub send_queue: Packages,
 }
 
 impl Drop for Client {
@@ -47,7 +47,7 @@ impl Drop for Client {
 }
 
 impl Client {
-    pub fn new(socket: TcpStream, address: SocketAddr) -> Self {
+    pub const fn new(socket: TcpStream, address: SocketAddr) -> Self {
         Self { socket, address, mode: Mode::Unknown, state: State::Idle, send_queue: Vec::new() }
     }
 
@@ -210,11 +210,11 @@ impl Client {
             debug!("parsed number: '{}'", number);
 
             let message = if let Some(entry) = get_public_entry_by_number(number).await {
-                let host_or_ip = if let Some(hostname) = entry.hostname.as_ref() {
+                let address = if let Some(hostname) = entry.hostname.as_ref() {
                     hostname.clone()
                 } else {
                     let ipaddress =
-                        entry.ipaddress.expect("database is incosistent: entry has neither hostname nor ipaddress");
+                        entry.ipaddress.context("database is incosistent: entry has neither hostname nor ipaddress")?;
 
                     format!("{}", ipaddress)
                 };
@@ -224,9 +224,9 @@ impl Client {
                     entry.number,
                     entry.name,
                     entry.client_type,
-                    host_or_ip,
+                    address,
                     entry.port,
-                    entry.extension_as_str(), // TODO: use weird conversion?
+                    entry.extension_as_str(),
                 )
             } else {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)

@@ -54,6 +54,11 @@ pub fn get_current_itelex_timestamp() -> u32 {
     SystemTime::now().duration_since(*ITELEX_EPOCH).unwrap().as_secs() as u32
 }
 
+// types
+pub type Packages = Vec<Package5>;
+type VoidJoinHandle = task::JoinHandle<()>;
+type ResultJoinHandle = task::JoinHandle<anyhow::Result<()>>;
+
 // constants
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
@@ -195,7 +200,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn register_client(
     listen_res: std::io::Result<(TcpStream, SocketAddr)>,
-    mut watchdog_sender: mpsc::Sender<task::JoinHandle<anyhow::Result<()>>>,
+    mut watchdog_sender: mpsc::Sender<ResultJoinHandle>,
 ) {
     match listen_res {
         Ok((socket, addr)) => {
@@ -211,8 +216,8 @@ async fn register_client(
 
 async fn listen_for_connections(
     stop_the_loop: oneshot::Receiver<()>,
-    watchdog_sender: mpsc::Sender<task::JoinHandle<anyhow::Result<()>>>,
-) -> anyhow::Result<task::JoinHandle<()>> {
+    watchdog_sender: mpsc::Sender<ResultJoinHandle>,
+) -> anyhow::Result<VoidJoinHandle> {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     let ipv4_listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, config!(SERVER_PORT))).await?;
@@ -267,10 +272,10 @@ fn register_exit_handler() -> oneshot::Receiver<()> {
     stopped_accept_loop
 }
 
-fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHandle<anyhow::Result<()>>>) {
-    let (watchdog_sender, mut watchdog_receiver) = mpsc::channel::<task::JoinHandle<anyhow::Result<()>>>(1);
+fn start_client_watchdog() -> (VoidJoinHandle, mpsc::Sender<ResultJoinHandle>) {
+    let (watchdog_sender, mut watchdog_receiver) = mpsc::channel::<ResultJoinHandle>(1);
 
-    let client_watchdog: task::JoinHandle<()> = task::spawn(async move {
+    let client_watchdog: VoidJoinHandle = task::spawn(async move {
         let mut clients = Vec::new();
 
         let mut shutdown = false;
@@ -337,7 +342,7 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
 }
 
 // TODO: refactor
-fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
+fn start_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>>) {
     info!("spawning background tasks");
 
     let mut join_handles = Vec::new();
@@ -444,7 +449,7 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
     result
 }
 
-fn start_handling_client(mut client: Client) -> task::JoinHandle<anyhow::Result<()>> {
+fn start_handling_client(mut client: Client) -> ResultJoinHandle {
     task::spawn(async move { handle_client_result(client.handle().await, &mut client).await })
 }
 
@@ -506,7 +511,7 @@ async fn connect_to(addr: SocketAddr) -> anyhow::Result<Client> {
     Ok(Client::new(TcpStream::connect(addr).await?, addr))
 }
 
-async fn update_server_with_packages(server: SocketAddr, packages: Vec<Package5>) -> anyhow::Result<()> {
+async fn update_server_with_packages(server: SocketAddr, packages: Packages) -> anyhow::Result<()> {
     if config!(SERVER_PIN) == 0 {
         bail!(anyhow!("Not updating other servers without a server pin"));
     }
@@ -524,7 +529,7 @@ async fn update_server_with_packages(server: SocketAddr, packages: Vec<Package5>
 
 fn update_other_servers(
     servers: Vec<SocketAddr>,
-) -> (Vec<task::JoinHandle<()>>, Vec<mpsc::UnboundedSender<Vec<Package5>>>, Vec<oneshot::Sender<()>>) {
+) -> (Vec<VoidJoinHandle>, Vec<mpsc::UnboundedSender<Packages>>, Vec<oneshot::Sender<()>>) {
     let mut join_handles = Vec::new();
 
     let mut senders = Vec::new();
@@ -536,7 +541,7 @@ fn update_other_servers(
 
         abort_senders.push(abort_sender);
 
-        let (sender, mut receiver) = mpsc::unbounded::<Vec<Package5>>();
+        let (sender, mut receiver) = mpsc::unbounded::<Packages>();
 
         senders.push(sender);
 
@@ -592,7 +597,7 @@ fn update_other_servers(
     (join_handles, senders, abort_senders)
 }
 
-async fn sync_changed(server_senders: &mut Vec<mpsc::UnboundedSender<Vec<Package5>>>) -> anyhow::Result<()> {
+async fn sync_changed(server_senders: &mut Vec<mpsc::UnboundedSender<Packages>>) -> anyhow::Result<()> {
     let changed = get_changed_entries().await;
 
     if changed.is_empty() {
