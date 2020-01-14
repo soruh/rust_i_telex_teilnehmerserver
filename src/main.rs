@@ -200,7 +200,7 @@ async fn register_client(
             if let Err(err) = watchdog_sender.send(start_handling_client(Client::new(socket, addr))).await {
                 error!("{:?}", anyhow!(err).context("Failed to register new client"));
             } else {
-                info!("Info new connection from {}", addr);
+                info!("new connection from {}", addr);
             }
         }
         Err(err) => error!("{:?}", anyhow!(err).context("Failed to accept a client")),
@@ -418,7 +418,7 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
     let addr = client.address;
 
     if let Err(error) = result.as_ref() {
-        let message = format!("The server encountered an error: {}\r\n", error);
+        let message = format!("fail\r\n-\r\nerror: {}\r\n+++\r\n", error);
 
         if client.mode == Mode::Binary {
             let _ = client.send_package(Package::Type255(Package255 { message })).await;
