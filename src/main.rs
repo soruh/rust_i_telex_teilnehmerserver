@@ -28,7 +28,7 @@ use anyhow::Context;
 use async_std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
-    sync::RwLock,
+    sync::{Mutex, RwLock},
     task,
 };
 use client::{Client, Mode, State};
@@ -58,6 +58,7 @@ pub fn get_current_itelex_timestamp() -> u32 {
 pub type Packages = Vec<Package5>;
 type VoidJoinHandle = task::JoinHandle<()>;
 type ResultJoinHandle = task::JoinHandle<anyhow::Result<()>>;
+type TaskId = usize;
 
 // constants
 const PEER_SEARCH_VERSION: u8 = 1;
@@ -70,6 +71,8 @@ pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH);
 pub static CHANGED: Lazy<RwLock<HashMap<u32, ()>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 pub static DATABASE: Lazy<RwLock<HashMap<u32, Package5>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
+pub static TASKS: Lazy<Mutex<HashMap<TaskId, ResultJoinHandle>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+pub static TASK_ID_COUNTER: Lazy<Mutex<TaskId>> = Lazy::new(|| Mutex::new(0));
 
 fn init_logger() -> anyhow::Result<()> {
     let log_level_from_string = |level: &str| -> anyhow::Result<LevelFilter> {
@@ -160,20 +163,15 @@ async fn main() -> anyhow::Result<()> {
     if let Err(err) = read_db_from_disk().await {
         let err = err.context("Failed to restore DB from disk");
         error!("{:?}", err);
-        error!("repair or delete {:?}", config!(DB_PATH));
-
-        // TODO: be smarter (try to restore from .temp etc.)
-        // ? should we really be smarter or is that the responibility of the user ?
+        error!("repair or delete {:?}.", config!(DB_PATH));
         bail!(err);
     }
-
-    let (client_watchdog, watchdog_sender) = start_client_watchdog();
 
     let (background_task_handles, stop_background_tasks) = start_tasks();
 
     info!("starting acccept loop");
 
-    match listen_for_connections(register_exit_handler(), watchdog_sender).await {
+    match listen_for_connections(register_exit_handler()).await {
         Ok(accept_loop) => accept_loop.await, // Wait for accept loop to end
         Err(err) => error!("{:?}", anyhow!(err).context("Failed to start accept loop")),
     }
@@ -189,7 +187,12 @@ async fn main() -> anyhow::Result<()> {
     futures::future::join_all(background_task_handles).await;
 
     warn!("waiting for children to finish");
-    client_watchdog.await;
+    let tasks: Vec<ResultJoinHandle> = {
+        let mut tasks = TASKS.lock().await;
+        tasks.drain().map(|(_, value)| value).collect()
+    };
+
+    let _ = select_all(tasks).await;
 
     sync_db_to_disk().await.expect("Failed to sync DB");
 
@@ -198,26 +201,18 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn register_client(
-    listen_res: std::io::Result<(TcpStream, SocketAddr)>,
-    mut watchdog_sender: mpsc::Sender<ResultJoinHandle>,
-) {
+async fn register_client(listen_res: std::io::Result<(TcpStream, SocketAddr)>) {
     match listen_res {
         Ok((socket, addr)) => {
-            if let Err(err) = watchdog_sender.send(start_handling_client(Client::new(socket, addr))).await {
-                error!("{:?}", anyhow!(err).context("Failed to register new client"));
-            } else {
-                info!("new connection from {}", addr);
-            }
+            debug!("new connection from {}", addr);
+
+            start_handling_client(Client::new(socket, addr)).await;
         }
         Err(err) => error!("{:?}", anyhow!(err).context("Failed to accept a client")),
     }
 }
 
-async fn listen_for_connections(
-    stop_the_loop: oneshot::Receiver<()>,
-    watchdog_sender: mpsc::Sender<ResultJoinHandle>,
-) -> anyhow::Result<VoidJoinHandle> {
+async fn listen_for_connections(stop_the_loop: oneshot::Receiver<()>) -> anyhow::Result<VoidJoinHandle> {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     let ipv4_listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, config!(SERVER_PORT))).await?;
@@ -231,8 +226,8 @@ async fn listen_for_connections(
         if let Some(ipv6_listener) = ipv6_listener {
             loop {
                 select! {
-                    res = ipv4_listener.accept().fuse() => register_client(res, watchdog_sender.clone()).await,
-                    res = ipv6_listener.accept().fuse() => register_client(res, watchdog_sender.clone()).await,
+                    res = ipv4_listener.accept().fuse() => register_client(res).await,
+                    res = ipv6_listener.accept().fuse() => register_client(res).await,
 
                     _ = stop_the_loop => break,
                 }
@@ -240,7 +235,7 @@ async fn listen_for_connections(
         } else {
             loop {
                 select! {
-                    res = ipv4_listener.accept().fuse() => register_client(res, watchdog_sender.clone()).await,
+                    res = ipv4_listener.accept().fuse() => register_client(res).await,
 
                     _ = stop_the_loop => break,
                 }
@@ -270,75 +265,6 @@ fn register_exit_handler() -> oneshot::Receiver<()> {
     });
 
     stopped_accept_loop
-}
-
-fn start_client_watchdog() -> (VoidJoinHandle, mpsc::Sender<ResultJoinHandle>) {
-    let (watchdog_sender, mut watchdog_receiver) = mpsc::channel::<ResultJoinHandle>(1);
-
-    let client_watchdog: VoidJoinHandle = task::spawn(async move {
-        let mut clients = Vec::new();
-
-        let mut shutdown = false;
-
-        while !(shutdown && clients.is_empty()) {
-            if shutdown {
-                debug!("[watchdog] we're shutting down, but there are clients to wait for");
-            } else if clients.is_empty() {
-                debug!("[watchdog] we're running, but are not waiting for any clients");
-            } else {
-                debug!("[watchdog] we're running, and there are still clients left");
-            }
-
-            if clients.is_empty() {
-                if let Some(client_handle) = watchdog_receiver.next().await {
-                    debug!("[watchdog] Got a new client");
-
-                    clients.push(client_handle);
-                } else {
-                    debug!("[watchdog] shutting down");
-
-                    // shutdown = true;
-                    break;
-                }
-            } else {
-                debug!("[watchdog] waiting for {} clients", clients.len());
-
-                let mut wait_for_clients = select_all(clients.drain(..)).fuse();
-
-                'inner: loop {
-                    let recv_client = async {
-                        if shutdown {
-                            futures::future::pending().await
-                        } else {
-                            watchdog_receiver.next().await
-                        }
-                    };
-
-                    select! {
-                        (res, _, mut rest) = wait_for_clients => {
-                            debug!("[watchdog] a client we were waiting for finished: {:?}", res);
-
-                            clients.append(&mut rest);
-                            break 'inner;
-                        },
-                        res = recv_client.fuse() => {
-                            if let Some(client_handle) = res {
-                                debug!("[watchdog] Got a new client");
-                                clients.push(client_handle);
-                            } else {
-                                debug!("[watchdog] shutting down");
-                                shutdown = true;
-                            }
-                        },
-                    }
-                }
-            }
-        }
-
-        debug!("[watchdog] successfully shut down");
-    });
-
-    (client_watchdog, watchdog_sender)
 }
 
 // TODO: refactor
@@ -449,8 +375,37 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
     result
 }
 
-fn start_handling_client(mut client: Client) -> ResultJoinHandle {
-    task::spawn(async move { handle_client_result(client.handle().await, &mut client).await })
+async fn start_handling_client(mut client: Client) -> TaskId {
+    debug!("starting to handle client");
+    let mut tasks = TASKS.lock().await;
+
+    let task_id = {
+        let mut task_id_counter = TASK_ID_COUNTER.lock().await;
+
+        let mut task_id = *task_id_counter;
+        while tasks.get(&task_id).is_some() {
+            task_id = task_id.wrapping_add(1);
+            debug!("next id: {}", task_id);
+        }
+
+        *task_id_counter = task_id + 1;
+
+        task_id
+    };
+
+    let task = task::spawn(async move {
+        let res = handle_client_result(client.handle().await, &mut client).await;
+
+        TASKS.lock().await.remove(&task_id);
+        info!("removed task {}", task_id);
+
+        res
+    });
+
+    info!("added task {}", task_id);
+    tasks.insert(task_id, task);
+
+    task_id
 }
 
 async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
@@ -470,7 +425,7 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
 
     client.send_package(pkg).await?;
 
-    start_handling_client(client).await?;
+    wait_for_task(start_handling_client(client).await).await?;
 
     warn!("finished full query for server {}", server);
 
@@ -524,7 +479,16 @@ async fn update_server_with_packages(server: SocketAddr, packages: Packages) -> 
 
     client.send_package(Package::Type7(Package7 { server_pin: config!(SERVER_PIN), version: LOGIN_VERSION })).await?;
 
-    start_handling_client(client).await
+    let task_id = start_handling_client(client).await;
+
+    wait_for_task(task_id).await
+}
+
+async fn wait_for_task(task_id: usize) -> anyhow::Result<()> {
+    debug!("waiting for task {}", task_id);
+    let task = TASKS.lock().await.remove(&task_id).expect("spawned task is not stored in TASKS");
+
+    task.await
 }
 
 fn update_other_servers(
