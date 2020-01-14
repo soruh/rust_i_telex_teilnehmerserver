@@ -196,9 +196,7 @@ impl Client {
             let mut number = String::new();
 
             for character in line.chars().skip(1) {
-                let char_code = character as u8;
-
-                if char_code < 48 || char_code > 57 {
+                if !character.is_digit(10) {
                     break; // number is over
                 }
 
@@ -212,8 +210,8 @@ impl Client {
             debug!("parsed number: '{}'", number);
 
             let message = if let Some(entry) = get_public_entry_by_number(number).await {
-                let host_or_ip = if let Some(hostname) = entry.hostname {
-                    hostname
+                let host_or_ip = if let Some(hostname) = entry.hostname.as_ref() {
+                    hostname.clone()
                 } else {
                     let ipaddress =
                         entry.ipaddress.expect("database is incosistent: entry has neither hostname nor ipaddress");
@@ -228,7 +226,7 @@ impl Client {
                     entry.client_type,
                     host_or_ip,
                     entry.port,
-                    entry.extension // TODO: use weird conversion?
+                    entry.extension_as_str(), // TODO: use weird conversion?
                 )
             } else {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)

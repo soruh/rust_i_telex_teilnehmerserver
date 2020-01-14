@@ -58,7 +58,8 @@ pub fn get_current_itelex_timestamp() -> u32 {
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
 const LOGIN_VERSION: u8 = 1;
-pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH - Duration::from_secs(60 * 60 * 24 * 365 * 70));
+// pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH - Duration::from_secs(60 * 60 * 24 * 365 * 70));
+pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH);
 
 // global state
 pub static CHANGED: Lazy<RwLock<HashMap<u32, ()>>> = Lazy::new(|| RwLock::new(HashMap::new()));

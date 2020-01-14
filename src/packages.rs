@@ -91,6 +91,26 @@ pub struct Package5 {
     pub timestamp: u32, // TODO
 }
 
+impl Package5 {
+    pub fn extension_as_str(&self) -> String {
+        let extension = self.extension;
+        if extension == 0 {
+            "-".into()
+        } else if extension < 100 {
+            extension.to_string()
+        } else if extension == 100 {
+            "00".into()
+        } else if extension > 100 && extension < 110 {
+            (extension - 100).to_string()
+        } else if extension == 110 {
+            "0".into()
+        } else {
+            warn!("entry has invalid extension");
+            "-".into()
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Package6 {
     pub version: u8,
