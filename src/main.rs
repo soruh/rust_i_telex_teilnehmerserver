@@ -1,9 +1,10 @@
-#![feature(async_closure)]
 #![warn(clippy::all, clippy::nursery)]
 
-#[macro_use] extern crate anyhow;
+#[macro_use]
+extern crate anyhow;
 
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 macro_rules! config {
     ($key:ident) => {
@@ -370,7 +371,11 @@ fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHand
 
                 'inner: loop {
                     let recv_client = async {
-                        if shutdown { futures::future::pending().await } else { watchdog_receiver.next().await }
+                        if shutdown {
+                            futures::future::pending().await
+                        } else {
+                            watchdog_receiver.next().await
+                        }
                     };
 
                     select! {
