@@ -48,29 +48,88 @@ use std::{
 };
 
 #[allow(clippy::cast_possible_truncation)]
-
 pub fn get_current_itelex_timestamp() -> u32 {
     SystemTime::now().duration_since(*ITELEX_EPOCH).unwrap().as_secs() as u32
 }
 
-// Configuration
-pub static CONFIG: OnceCell<Config> = OnceCell::new();
-
-// Actual constants
+// constants
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
 const LOGIN_VERSION: u8 = 1;
-pub static ITELEX_EPOCH: Lazy<SystemTime> =
-    Lazy::new(|| UNIX_EPOCH.checked_sub(Duration::from_secs(60 * 60 * 24 * 365 * 70)).unwrap());
+pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH - Duration::from_secs(60 * 60 * 24 * 365 * 70));
 
 // global state
 pub static SERVERS: OnceCell<Vec<SocketAddr>> = OnceCell::new();
 pub static CHANGED: Lazy<RwLock<HashMap<u32, ()>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 pub static DATABASE: Lazy<RwLock<HashMap<u32, Package5>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+pub static CONFIG: OnceCell<Config> = OnceCell::new();
+
+fn init_logger() -> anyhow::Result<()> {
+    let log_level_from_string = |level: &str| -> anyhow::Result<LevelFilter> {
+        Ok(match level.to_lowercase().as_str() {
+            "off" => LevelFilter::Off,
+            "error" => LevelFilter::Error,
+            "warn" => LevelFilter::Warn,
+            "info" => LevelFilter::Info,
+
+            // We don't compile the calls to these in release mode
+            #[cfg(debug_assertions)]
+            "debug" => LevelFilter::Debug,
+            #[cfg(debug_assertions)]
+            "trace" => LevelFilter::Trace,
+
+            _ => bail!("invalid log level"),
+        })
+    };
+
+    use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode, WriteLogger};
+    use std::fs::File;
+
+    let mut loggers: Vec<Box<dyn SharedLogger>> = Vec::new();
+
+    {
+        let log_level = if let Some(log_level) = config!(LOG_LEVEL_TERM).as_ref() {
+            log_level_from_string(log_level)?
+        } else {
+            #[cfg(debug_assertions)]
+            let default_level = LevelFilter::Debug;
+
+            #[cfg(not(debug_assertions))]
+            let default_level = LevelFilter::Warn;
+
+            default_level
+        };
+
+        loggers.push(
+            TermLogger::new(log_level, Config::default(), TerminalMode::Mixed)
+                .context("Failed to create terminal logger")?,
+        );
+    }
+
+    if let Some(log_file_path) = config!(LOG_FILE_PATH).as_ref() {
+        {
+            let log_level = if let Some(log_level) = config!(LOG_LEVEL_FILE).as_ref() {
+                log_level_from_string(log_level)?
+            } else {
+                LevelFilter::Info
+            };
+
+            loggers.push(WriteLogger::new(
+                log_level,
+                Config::default(),
+                File::create(log_file_path).context("Failed to create file logger")?,
+            ));
+        }
+    }
+
+    CombinedLogger::init(loggers).context("Failed to initialize logger")?;
+
+    Ok(())
+}
 
 #[async_std::main]
 async fn main() -> anyhow::Result<()> {
-    simple_logger::init().expect("Failed to initialize logger");
+    // simple_logger::init().expect("Failed to initialize logger");
 
     if let Err(err) = dotenv::dotenv() {
         if !err.not_found() {
@@ -79,6 +138,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     CONFIG.set(Config::from_env()?).expect("Failed to set config");
+
+    init_logger()?;
 
     debug!("using config: {:#?}", CONFIG.get().unwrap());
 
@@ -209,7 +270,6 @@ fn register_exit_handler() -> oneshot::Receiver<()> {
     use simple_signal::{set_handler, Signal};
 
     let (stop_accept_loop, stopped_accept_loop) = oneshot::channel::<()>();
-
     let stop_accept_loop = RefCell::new(Some(stop_accept_loop));
 
     set_handler(&[Signal::Int, Signal::Term], move |signals| {

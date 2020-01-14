@@ -14,6 +14,9 @@ pub struct Config {
     pub DB_PATH: String,
     pub DB_PATH_TEMP: String,
     pub SERVER_FILE_PATH: String,
+    pub LOG_FILE_PATH: Option<String>,
+    pub LOG_LEVEL_FILE: Option<String>,
+    pub LOG_LEVEL_TERM: Option<String>,
 }
 
 macro_rules! get_variable {
@@ -52,6 +55,9 @@ impl Config {
             DB_PATH: get_variable!("DB_PATH"),
             DB_PATH_TEMP: get_variable!("DB_PATH_TEMP"),
             SERVER_FILE_PATH: get_variable!("SERVER_FILE_PATH"),
+            LOG_FILE_PATH: var("LOG_FILE_PATH").ok(),
+            LOG_LEVEL_FILE: var("LOG_LEVEL_FILE").ok(),
+            LOG_LEVEL_TERM: var("LOG_LEVEL_TERM").ok(),
         })
     }
 }
