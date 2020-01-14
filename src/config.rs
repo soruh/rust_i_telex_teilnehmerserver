@@ -1,5 +1,6 @@
 use anyhow::Context;
-use std::time::Duration;
+use async_std::net::ToSocketAddrs;
+use std::{net::SocketAddr, time::Duration};
 
 #[derive(Debug)]
 #[allow(non_snake_case)]
@@ -13,7 +14,7 @@ pub struct Config {
     pub SERVER_PIN: u32,
     pub DB_PATH: String,
     pub DB_PATH_TEMP: String,
-    pub SERVER_FILE_PATH: String,
+    pub SERVERS: Vec<SocketAddr>,
     pub LOG_FILE_PATH: Option<String>,
     pub LOG_LEVEL_FILE: Option<String>,
     pub LOG_LEVEL_TERM: Option<String>,
@@ -42,7 +43,7 @@ macro_rules! parse_number {
 }
 
 impl Config {
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub async fn from_env() -> anyhow::Result<Self> {
         use std::env::var;
         Ok(Config {
             CLIENT_TIMEOUT: parse_duration!("CLIENT_TIMEOUT"),
@@ -54,12 +55,33 @@ impl Config {
             SERVER_PIN: parse_number!("SERVER_PIN"),
             DB_PATH: get_variable!("DB_PATH"),
             DB_PATH_TEMP: get_variable!("DB_PATH_TEMP"),
-            SERVER_FILE_PATH: get_variable!("SERVER_FILE_PATH"),
             LOG_FILE_PATH: var("LOG_FILE_PATH").ok(),
             LOG_LEVEL_FILE: var("LOG_LEVEL_FILE").ok(),
             LOG_LEVEL_TERM: var("LOG_LEVEL_TERM").ok(),
+            SERVERS: parse_servers(get_variable!("SERVERS")).await.context("failed to parse servers")?,
         })
     }
+}
+
+async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
+    let mut servers = Vec::new();
+
+    for entry in input.split(",") {
+        let socket_addrs = entry.trim().to_socket_addrs().await?;
+
+        // only use the first result to prevent syncing a server twice
+        // (e.g. if there is both an Ipv4 and an Ipv6 address for a server)
+        // We prefer ipv4 addresses, since older servers only listen on those
+        let ipv4 = socket_addrs.clone().find(|addr| addr.is_ipv4());
+
+        if let Some(addr) = ipv4 {
+            servers.push(addr);
+        } else {
+            servers.extend(socket_addrs.take(1));
+        }
+    }
+
+    Ok(servers)
 }
 
 fn duration_from_string(input: String) -> anyhow::Result<Duration> {

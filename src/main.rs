@@ -60,7 +60,6 @@ const LOGIN_VERSION: u8 = 1;
 pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH - Duration::from_secs(60 * 60 * 24 * 365 * 70));
 
 // global state
-pub static SERVERS: OnceCell<Vec<SocketAddr>> = OnceCell::new();
 pub static CHANGED: Lazy<RwLock<HashMap<u32, ()>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 pub static DATABASE: Lazy<RwLock<HashMap<u32, Package5>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
@@ -138,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    CONFIG.set(Config::from_env()?).expect("Failed to set config");
+    CONFIG.set(Config::from_env().await?).expect("Failed to set config");
 
     init_logger()?;
 
@@ -151,7 +150,15 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    read_fs_data().await?;
+    if let Err(err) = read_db_from_disk().await {
+        let err = err.context("Failed to restore DB from disk");
+        error!("{:?}", err);
+        error!("repair or delete {:?}", config!(DB_PATH));
+
+        // TODO: be smarter (try to restore from .temp etc.)
+        // ? should we really be smarter or is that the responibility of the user ?
+        bail!(err);
+    }
 
     let (client_watchdog, watchdog_sender) = start_client_watchdog();
 
@@ -237,36 +244,6 @@ async fn listen_for_connections(
     }))
 }
 
-async fn read_fs_data() -> anyhow::Result<()> {
-    match read_servers().await {
-        Ok(servers) => {
-            if servers.is_empty() {
-                warn!("No remote servers were set. This server will not syncronize with other servers.");
-            }
-
-            SERVERS.set(servers).expect("Failed to set server list");
-        }
-        Err(err) => {
-            let err = anyhow!(err).context(format!("Failed to read server list from {}", config!(SERVER_FILE_PATH)));
-
-            error!("{:?}", err);
-
-            bail!(err);
-        }
-    }
-
-    if let Err(err) = read_db_from_disk().await {
-        let err = err.context("Failed to restore DB from disk");
-        error!("{:?}", err);
-        error!("repair or delete {:?}", config!(DB_PATH));
-        // TODO: be smarter (try to restore from .temp etc.)
-        // ? should we really be smarter or is that the responibility of the user ?
-        bail!(err);
-    }
-
-    Ok(())
-}
-
 fn register_exit_handler() -> oneshot::Receiver<()> {
     use simple_signal::{set_handler, Signal};
 
@@ -286,54 +263,6 @@ fn register_exit_handler() -> oneshot::Receiver<()> {
     });
 
     stopped_accept_loop
-}
-
-async fn read_servers() -> anyhow::Result<Vec<SocketAddr>> {
-    use async_std::{
-        fs::File,
-        io::{BufReader, ErrorKind},
-        net::ToSocketAddrs,
-    };
-
-    let mut servers = Vec::new();
-
-    match File::open(&config!(SERVER_FILE_PATH)).await {
-        Ok(file) => {
-            let mut lines = BufReader::new(file).lines();
-
-            while let Some(line) = lines.next().await {
-                let socket_addrs = line?.to_socket_addrs().await?;
-
-                // only use the first result to prevent syncing a server twice
-                // (e.g. if there is both an Ipv4 and an Ipv6 address for a server)
-                // We prefer ipv4 addresses, since older servers only listen on those
-                let ipv4 = socket_addrs.clone().find(|addr| addr.is_ipv4());
-
-                if let Some(addr) = ipv4 {
-                    servers.push(addr);
-                } else {
-                    servers.extend(socket_addrs.take(1));
-                }
-            }
-        }
-        Err(err) => {
-            if err.kind() != ErrorKind::NotFound {
-                bail!(anyhow!(err).context("Failed to open server list"));
-            }
-
-            if let Err(err) = File::create(&config!(SERVER_FILE_PATH)).await {
-                bail!(anyhow!(err).context("Failed to create new server list"));
-            } else {
-                warn!("created new server list at {}", config!(SERVER_FILE_PATH));
-            }
-        }
-    }
-
-    warn!("Read {} servers from server list", servers.len());
-
-    warn!("servers: {}", servers.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "));
-
-    Ok(servers)
 }
 
 fn start_client_watchdog() -> (task::JoinHandle<()>, mpsc::Sender<task::JoinHandle<anyhow::Result<()>>>) {
@@ -414,7 +343,7 @@ fn start_tasks() -> (Vec<task::JoinHandle<()>>, Vec<oneshot::Sender<()>>) {
     let mut abort_senders = Vec::new();
 
     let (server_join_handles, mut server_senders, server_abort_senders) =
-        update_other_servers(SERVERS.get().unwrap().to_vec());
+        update_other_servers(config!(SERVERS).to_vec());
 
     abort_senders.extend(server_abort_senders);
 
@@ -546,7 +475,7 @@ async fn full_query() -> anyhow::Result<()> {
 
     info!("starting full query");
 
-    for server in SERVERS.get().unwrap().iter() {
+    for server in config!(SERVERS).iter() {
         full_queries.push(full_query_for_server(server.clone()));
     }
 
