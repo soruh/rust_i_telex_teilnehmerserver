@@ -179,6 +179,7 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
 
                 if package.pin == existing.pin {
                     existing.ipaddress = Some(ipaddress);
+                    existing.timestamp = get_current_itelex_timestamp();
                 } else {
                     bail!(ItelexServerErrorKind::PasswordError);
                 }
@@ -257,7 +258,7 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 }
 
 pub async fn get_public_entries_by_pattern(pattern: &str) -> Vec<Package5> {
-    let words: Vec<&str> = pattern.split(" ").collect();
+    let words: Vec<&str> = pattern.split(' ').collect();
 
     DATABASE.read().await.iter().filter(|(_, e)| pattern_matches(&words, &e.name)).map(|(_, e)| e.clone()).collect()
 }

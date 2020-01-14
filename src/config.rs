@@ -66,7 +66,7 @@ impl Config {
 async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
     let mut servers = Vec::new();
 
-    for entry in input.split(",") {
+    for entry in input.split(',') {
         if entry == "" {
             continue;
         }
@@ -89,7 +89,7 @@ async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
 }
 
 fn duration_from_string(input: String) -> anyhow::Result<Duration> {
-    let mut parts = input.split(".");
+    let mut parts = input.split('.');
     let number: u64 = parts.next().context("variable was empty")?.parse()?;
 
     if let Some(unit) = parts.next() {
