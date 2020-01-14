@@ -67,6 +67,10 @@ async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
     let mut servers = Vec::new();
 
     for entry in input.split(",") {
+        if entry == "" {
+            continue;
+        }
+
         let socket_addrs = entry.trim().to_socket_addrs().await?;
 
         // only use the first result to prevent syncing a server twice
