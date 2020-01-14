@@ -16,6 +16,9 @@ pub enum ItelexServerErrorKind {
     #[error("Tried to update with an Ipv6 address")]
     Ipv6Address,
 
+    #[error("Invalid client typ. Was {}, but must be {}", _0, _1)]
+    InvalidClientType(u8, u8),
+
     #[error("Tried to use a wrong password")]
     PasswordError,
 

@@ -99,12 +99,13 @@ impl Client {
         let body = serialize(package.try_into()?)?;
         let package_length = body.len() as u8;
 
-        // let header = [package_type, package_length];
+        let header = [package_type, package_length];
 
         let mut package_buffer = Vec::with_capacity(body.len() + 2);
-        package_buffer.push(package_type);
-        package_buffer.push(package_length);
+        package_buffer.extend(&header);
         package_buffer.extend(body);
+
+        debug!("sending package buffer: {:?}", package_buffer);
 
         self.socket.write_all(package_buffer.as_slice()).await.context(ItelexServerErrorKind::FailedToWrite)?;
 
@@ -284,7 +285,6 @@ impl Client {
                 };
 
                 update_or_register_entry(package, ipaddress).await?;
-
                 self.send_package(Package::Type2(Package2 { ipaddress })).await?;
 
                 Ok(())

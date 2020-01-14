@@ -169,7 +169,7 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
         if let Some(existing) = db.get_mut(&number) {
             if existing.client_type == 0 {
                 db.insert(number, new_entry);
-            } else {
+            } else if existing.client_type == 5 {
                 if existing.pin == 0 {
                     // NOTE: overwrite 0 pins.
                     existing.pin = package.pin;
@@ -182,6 +182,8 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
                 } else {
                     bail!(ItelexServerErrorKind::PasswordError);
                 }
+            } else {
+                bail!(ItelexServerErrorKind::InvalidClientType(existing.client_type, 5));
             }
         } else {
             db.insert(number, new_entry);
