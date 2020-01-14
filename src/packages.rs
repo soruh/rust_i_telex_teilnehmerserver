@@ -219,22 +219,14 @@ impl TryFrom<&[u8]> for Package5 {
             hostname: {
                 let hostname = string_from_slice(&slice[47..87])?;
 
-                if hostname.is_empty() {
-                    None
-                } else {
-                    Some(hostname)
-                }
+                if hostname.is_empty() { None } else { Some(hostname) }
             },
             ipaddress: {
                 let octets: [u8; 4] = slice[87..91].try_into()?;
 
                 let ipaddress = Ipv4Addr::from(octets);
 
-                if ipaddress.is_unspecified() {
-                    None
-                } else {
-                    Some(ipaddress)
-                }
+                if ipaddress.is_unspecified() { None } else { Some(ipaddress) }
             },
             port: u16::from_le_bytes(slice[91..93].try_into()?),
             extension: u8::from_le_bytes(slice[93..94].try_into()?),

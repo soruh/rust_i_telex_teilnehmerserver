@@ -170,11 +170,7 @@ impl Client {
     pub async fn consume_package(self: &mut Client) -> anyhow::Result<()> {
         assert_ne!(self.mode, Mode::Unknown);
 
-        if self.mode == Mode::Binary {
-            self.consume_package_binary().await
-        } else {
-            self.consume_package_ascii().await
-        }
+        if self.mode == Mode::Binary { self.consume_package_binary().await } else { self.consume_package_ascii().await }
     }
 
     pub async fn consume_package_ascii(self: &mut Client) -> anyhow::Result<()> {

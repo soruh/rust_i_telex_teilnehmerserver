@@ -1,11 +1,9 @@
 #![warn(clippy::all, clippy::nursery)]
 #![allow(clippy::unnecessary_mut_passed)] // TODO: remove
 
-#[macro_use]
-extern crate anyhow;
+#[macro_use] extern crate anyhow;
 
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 
 macro_rules! config {
     ($key:ident) => {
@@ -64,7 +62,8 @@ type TaskId = usize;
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
 const LOGIN_VERSION: u8 = 1;
-// pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH - Duration::from_secs(60 * 60 * 24 * 365 * 70));
+// pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH -
+// Duration::from_secs(60 * 60 * 24 * 365 * 70));
 pub static ITELEX_EPOCH: Lazy<SystemTime> = Lazy::new(|| UNIX_EPOCH);
 
 // global state
