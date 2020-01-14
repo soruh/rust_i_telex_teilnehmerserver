@@ -41,9 +41,13 @@ pub enum ItelexServerErrorKind {
 macro_rules! err_unimplemented {
     () => {
         #[cfg(not(debug_assertions))]
-        compile_error!("can't use `ItelexServerErrorKind::Unimplemented` in release mode");
+        {
+            compile_error!("can't use `ItelexServerErrorKind::Unimplemented` in release mode");
+        }
 
         #[cfg(debug_assertions)]
-        ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
+        {
+            ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
+        }
     };
 }
