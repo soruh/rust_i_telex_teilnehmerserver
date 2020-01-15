@@ -20,11 +20,12 @@ use anyhow::Context;
 use async_std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
-    sync::{Mutex, RwLock},
+    sync::Mutex,
     task,
 };
 use client::{Client, Mode, State};
 use config::Config;
+use dashmap::DashMap;
 use db::*;
 use futures::{
     channel::{mpsc, oneshot},
@@ -36,7 +37,6 @@ use futures::{
 use once_cell::sync::{Lazy, OnceCell};
 use std::{
     cell::RefCell,
-    collections::HashMap,
     net::SocketAddr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -50,10 +50,10 @@ pub type Entry = packages::Package5;
 pub type Entries = Vec<Entry>;
 
 // global state
-pub static CHANGED: Lazy<RwLock<HashMap<u32, ()>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-pub static DATABASE: Lazy<RwLock<HashMap<u32, Entry>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+pub static CHANGED: Lazy<DashMap<u32, ()>> = Lazy::new(|| DashMap::new());
+pub static DATABASE: Lazy<DashMap<u32, Entry>> = Lazy::new(|| DashMap::new());
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
-pub static TASKS: Lazy<Mutex<HashMap<TaskId, ResultJoinHandle>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+pub static TASKS: Lazy<DashMap<TaskId, ResultJoinHandle>> = Lazy::new(|| DashMap::new());
 pub static TASK_ID_COUNTER: Lazy<Mutex<TaskId>> = Lazy::new(|| Mutex::new(0));
 
 #[async_std::main]
@@ -101,7 +101,17 @@ async fn main() -> anyhow::Result<()> {
     }
 
     warn!("waiting for all tasks to finish");
-    let tasks: Vec<ResultJoinHandle> = TASKS.lock().await.drain().map(|(_, value)| value).collect();
+
+    // TODO: convert to `drain` once dashmap supports it
+    let mut tasks: Vec<ResultJoinHandle> = Vec::with_capacity(TASKS.len());
+    let task_ids: Vec<TaskId> = TASKS.iter().map(|item| item.key().clone()).collect();
+    for task_id in task_ids {
+        if let Some(task) = TASKS.remove(&task_id) {
+            tasks.push(task.1);
+        }
+    }
+    TASKS.clear();
+
     if !tasks.is_empty() {
         let _ = select_all(tasks).await;
     } else {
@@ -117,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn wait_for_task(task_id: usize) -> anyhow::Result<()> {
     debug!("waiting for task {}", task_id);
-    let task = TASKS.lock().await.remove(&task_id).expect("spawned task is not stored in TASKS");
+    let (_, task) = TASKS.remove(&task_id).expect("spawned task is not stored in TASKS");
 
     task.await
 }

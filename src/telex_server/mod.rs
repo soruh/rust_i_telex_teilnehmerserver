@@ -130,13 +130,12 @@ async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -
 
 async fn start_handling_client(mut client: Client) -> TaskId {
     trace!("starting to handle client");
-    let mut tasks = TASKS.lock().await;
 
     let task_id = {
         let mut task_id_counter = TASK_ID_COUNTER.lock().await;
 
         let mut task_id = *task_id_counter;
-        while tasks.contains_key(&task_id) {
+        while TASKS.contains_key(&task_id) {
             task_id = task_id.wrapping_add(1);
             info!("task id was already taken. Next id: {}", task_id);
         }
@@ -149,14 +148,14 @@ async fn start_handling_client(mut client: Client) -> TaskId {
     let task = task::spawn(async move {
         let res = handle_client_result(client.handle().await, &mut client).await;
 
-        TASKS.lock().await.remove(&task_id);
+        TASKS.remove(&task_id);
         info!("removed task {}", task_id);
 
         res
     });
 
     trace!("added task {}", task_id);
-    tasks.insert(task_id, task);
+    TASKS.insert(task_id, task);
 
     task_id
 }

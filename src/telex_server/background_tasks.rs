@@ -121,7 +121,7 @@ async fn full_query() -> anyhow::Result<()> {
 
     info!("finished full query");
 
-    let n_changed = CHANGED.read().await.len();
+    let n_changed = CHANGED.len();
 
     if n_changed > 0 {
         warn!("Server has {} changed entries", n_changed);

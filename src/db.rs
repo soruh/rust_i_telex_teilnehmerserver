@@ -22,7 +22,8 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 
     let mut temp_file: File = File::create(&config!(DB_PATH_TEMP)).await?;
 
-    for (_, entry) in DATABASE.read().await.iter() {
+    for item in DATABASE.iter() {
+        let entry = item.value();
         let buffer: Vec<u8> = entry.clone().try_into()?;
 
         temp_file.write_all(buffer.as_slice()).await?;
@@ -107,10 +108,8 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
     info!("Writing {} read entries to in memory DB", packages.len());
 
     {
-        let mut db = DATABASE.write().await;
-
         for package in packages {
-            db.insert(package.number, package);
+            DATABASE.insert(package.number, package);
         }
     }
 
@@ -122,17 +121,15 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
 pub async fn get_changed_entries() -> Entries {
     let mut changed_entries: Entries = Vec::new();
 
-    {
-        let db = DATABASE.read().await;
-
-        let mut changed = CHANGED.write().await;
-
-        for (number, _) in changed.drain() {
-            if let Some(entry) = db.get(&number) {
-                changed_entries.push(entry.clone());
-            }
+    // TODO: convert to `drain` once dashmap supports it
+    for item in CHANGED.iter() {
+        let number = item.key();
+        if let Some(entry) = DATABASE.get(number) {
+            changed_entries.push(entry.clone());
         }
     }
+
+    CHANGED.clear();
 
     debug!("changed entries: {:#?}", changed_entries);
 
@@ -140,7 +137,7 @@ pub async fn get_changed_entries() -> Entries {
 }
 
 pub async fn get_all_entries() -> Entries {
-    DATABASE.write().await.iter().map(|(_, package)| package.clone()).collect()
+    DATABASE.iter().map(|item| item.value().clone()).collect()
 }
 
 pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyhow::Result<()> {
@@ -166,11 +163,9 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
     };
 
     {
-        let mut db = DATABASE.write().await;
-
-        if let Some(existing) = db.get_mut(&number) {
+        if let Some(mut existing) = DATABASE.get_mut(&number) {
             if existing.client_type == 0 {
-                db.insert(number, new_entry);
+                DATABASE.insert(number, new_entry);
             } else if existing.client_type == 5 {
                 if existing.pin == 0 {
                     // NOTE: overwrite 0 pins.
@@ -189,34 +184,32 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
                 bail!(ItelexServerErrorKind::InvalidClientType(existing.client_type, 5));
             }
         } else {
-            db.insert(number, new_entry);
+            DATABASE.insert(number, new_entry);
         }
     }
 
-    CHANGED.write().await.insert(number, ());
+    CHANGED.insert(number, ());
 
     Ok(())
 }
 
 pub async fn update_entry(entry: Entry) {
-    CHANGED.write().await.insert(entry.number, ());
+    CHANGED.insert(entry.number, ());
 
-    DATABASE.write().await.insert(entry.number, entry);
+    DATABASE.insert(entry.number, entry);
 }
 
 pub async fn update_entry_if_newer(entry: Entry) {
-    let mut db = DATABASE.write().await;
-
     let do_update =
-        if let Some(existing) = db.get(&entry.number) { entry.timestamp > existing.timestamp } else { true };
+        if let Some(existing) = DATABASE.get(&entry.number) { entry.timestamp > existing.timestamp } else { true };
 
     if do_update {
         // NOTE: we duplicate the code from above almost exactly here
         // to keep the db locked so that no other task can
         // change the entry we just checked
-        CHANGED.write().await.insert(entry.number, ());
+        CHANGED.insert(entry.number, ());
 
-        db.insert(entry.number, entry);
+        DATABASE.insert(entry.number, entry);
     }
 }
 
@@ -232,13 +225,10 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 
 pub async fn get_public_entries() -> Entries {
     DATABASE
-        .read()
-        .await
         .iter()
-        .map(|(_, e)| e)
-        .filter(|e| !(e.disabled || e.client_type == 0))
-        .map(|e| {
-            let mut entry = e.clone();
+        .filter(|item| !(item.value().disabled || item.value().client_type == 0))
+        .map(|item| {
+            let mut entry = item.value().clone();
             entry.pin = 0;
             entry
         })
@@ -251,11 +241,11 @@ pub async fn get_public_entries_by_pattern(pattern: &str) -> Entries {
 }
 
 pub async fn get_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.read().await.get(&number).cloned()
+    DATABASE.get(&number).map(|item| item.value().clone())
 }
 
 pub async fn get_public_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.read().await.get(&number).filter(|e| !(e.disabled || e.client_type == 0)).map(|e| {
+    DATABASE.get(&number).filter(|e| !(e.disabled || e.client_type == 0)).map(|e| {
         let mut entry = e.clone();
 
         entry.pin = 0;
