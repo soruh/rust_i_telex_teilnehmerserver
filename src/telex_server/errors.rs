@@ -51,6 +51,6 @@ macro_rules! err_unimplemented {
 #[cfg(debug_assertions)]
 macro_rules! err_unimplemented {
     () => {
-        ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
+        errors::ItelexServerErrorKind::Unimplemented(file!(), line!(), column!())
     };
 }

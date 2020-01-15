@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <link href="/static/main.css" rel="stylesheet" />
+    <script src="/static/api.js"></script>
+    <title id="title">Eintrag</title>
+  </head>
+  <body>
+    <a href="/static/index.html">zurück</a>
+
+    <script>
+      var searchParams = new URLSearchParams(new URL(window.location).search);
+      var number = parseInt(searchParams.get("number"));
+      if (!number) window.location = "/";
+
+      console.log("number:", number);
+      lookupNumber(number, function(entry) {
+        console.table(entry);
+
+        document.getElementById("title").innerHTML = entry.name;
+      });
+    </script>
+  </body>
+</html>

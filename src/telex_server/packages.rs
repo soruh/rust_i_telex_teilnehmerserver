@@ -77,7 +77,7 @@ pub struct Package3 {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Package4 {}
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, serde::Serialize)]
 pub struct Package5 {
     pub number: u32,
     pub name: String,
@@ -318,7 +318,7 @@ impl TryFrom<&[u8]> for Package255 {
 impl TryInto<Vec<u8>> for Package1 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package1) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_1);
 
         res.write_all(&self.number.to_le_bytes())?;
@@ -332,7 +332,7 @@ impl TryInto<Vec<u8>> for Package1 {
 impl TryInto<Vec<u8>> for Package2 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package2) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_2);
 
         res.write_all(&self.ipaddress.octets())?;
@@ -344,7 +344,7 @@ impl TryInto<Vec<u8>> for Package2 {
 impl TryInto<Vec<u8>> for Package3 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package3) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_3);
 
         res.write_all(&self.number.to_le_bytes())?;
@@ -358,7 +358,7 @@ impl TryInto<Vec<u8>> for Package3 {
 impl TryInto<Vec<u8>> for Package4 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package4) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 }
@@ -366,7 +366,7 @@ impl TryInto<Vec<u8>> for Package4 {
 impl TryInto<Vec<u8>> for Package5 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package5) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_5);
 
         let flags: u16 = if self.disabled { 0x02 } else { 0 };
@@ -389,7 +389,7 @@ impl TryInto<Vec<u8>> for Package5 {
 impl TryInto<Vec<u8>> for Package6 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package6) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_6);
 
         res.write_all(&self.version.to_le_bytes())?;
@@ -403,7 +403,7 @@ impl TryInto<Vec<u8>> for Package6 {
 impl TryInto<Vec<u8>> for Package7 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package7) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_7);
 
         res.write_all(&self.version.to_le_bytes())?;
@@ -417,7 +417,7 @@ impl TryInto<Vec<u8>> for Package7 {
 impl TryInto<Vec<u8>> for Package8 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package8) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 }
@@ -425,7 +425,7 @@ impl TryInto<Vec<u8>> for Package8 {
 impl TryInto<Vec<u8>> for Package9 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package9) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 }
@@ -433,7 +433,7 @@ impl TryInto<Vec<u8>> for Package9 {
 impl TryInto<Vec<u8>> for Package10 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package10) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_10);
 
         res.write_all(&self.version.to_le_bytes())?;
@@ -447,7 +447,7 @@ impl TryInto<Vec<u8>> for Package10 {
 impl TryInto<Vec<u8>> for Package255 {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package255) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = CString::new(self.message)?.try_into()?;
 
         res.push(0);
@@ -478,19 +478,19 @@ pub enum Package {
 }
 
 impl Package {
-    pub fn parse(package_type: u8, slice: &[u8]) -> anyhow::Result<Package> {
+    pub fn parse(package_type: u8, slice: &[u8]) -> anyhow::Result<Self> {
         Ok(match package_type {
-            1 => Package::Type1(Package1::try_from(slice)?),
-            2 => Package::Type2(Package2::try_from(slice)?),
-            3 => Package::Type3(Package3::try_from(slice)?),
-            4 => Package::Type4(Package4::try_from(slice)?),
-            5 => Package::Type5(Package5::try_from(slice)?),
-            6 => Package::Type6(Package6::try_from(slice)?),
-            7 => Package::Type7(Package7::try_from(slice)?),
-            8 => Package::Type8(Package8::try_from(slice)?),
-            9 => Package::Type9(Package9::try_from(slice)?),
-            10 => Package::Type10(Package10::try_from(slice)?),
-            255 => Package::Type255(Package255::try_from(slice)?),
+            1 => Self::Type1(Package1::try_from(slice)?),
+            2 => Self::Type2(Package2::try_from(slice)?),
+            3 => Self::Type3(Package3::try_from(slice)?),
+            4 => Self::Type4(Package4::try_from(slice)?),
+            5 => Self::Type5(Package5::try_from(slice)?),
+            6 => Self::Type6(Package6::try_from(slice)?),
+            7 => Self::Type7(Package7::try_from(slice)?),
+            8 => Self::Type8(Package8::try_from(slice)?),
+            9 => Self::Type9(Package9::try_from(slice)?),
+            10 => Self::Type10(Package10::try_from(slice)?),
+            255 => Self::Type255(Package255::try_from(slice)?),
 
             _ => bail!(ItelexServerErrorKind::ParseFailure(package_type)),
         })
@@ -498,17 +498,17 @@ impl Package {
 
     pub fn package_type(&self) -> u8 {
         match self {
-            Package::Type1(_) => 1,
-            Package::Type2(_) => 2,
-            Package::Type3(_) => 3,
-            Package::Type4(_) => 4,
-            Package::Type5(_) => 5,
-            Package::Type6(_) => 6,
-            Package::Type7(_) => 7,
-            Package::Type8(_) => 8,
-            Package::Type9(_) => 9,
-            Package::Type10(_) => 10,
-            Package::Type255(_) => 255,
+            Self::Type1(_) => 1,
+            Self::Type2(_) => 2,
+            Self::Type3(_) => 3,
+            Self::Type4(_) => 4,
+            Self::Type5(_) => 5,
+            Self::Type6(_) => 6,
+            Self::Type7(_) => 7,
+            Self::Type8(_) => 8,
+            Self::Type9(_) => 9,
+            Self::Type10(_) => 10,
+            Self::Type255(_) => 255,
         }
     }
 }
@@ -516,19 +516,19 @@ impl Package {
 impl TryInto<Vec<u8>> for Package {
     type Error = anyhow::Error;
 
-    fn try_into(self: Package) -> anyhow::Result<Vec<u8>> {
+    fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         match self {
-            Package::Type1(pkg) => pkg.try_into(),
-            Package::Type2(pkg) => pkg.try_into(),
-            Package::Type3(pkg) => pkg.try_into(),
-            Package::Type4(pkg) => pkg.try_into(),
-            Package::Type5(pkg) => pkg.try_into(),
-            Package::Type6(pkg) => pkg.try_into(),
-            Package::Type7(pkg) => pkg.try_into(),
-            Package::Type8(pkg) => pkg.try_into(),
-            Package::Type9(pkg) => pkg.try_into(),
-            Package::Type10(pkg) => pkg.try_into(),
-            Package::Type255(pkg) => pkg.try_into(),
+            Self::Type1(pkg) => pkg.try_into(),
+            Self::Type2(pkg) => pkg.try_into(),
+            Self::Type3(pkg) => pkg.try_into(),
+            Self::Type4(pkg) => pkg.try_into(),
+            Self::Type5(pkg) => pkg.try_into(),
+            Self::Type6(pkg) => pkg.try_into(),
+            Self::Type7(pkg) => pkg.try_into(),
+            Self::Type8(pkg) => pkg.try_into(),
+            Self::Type9(pkg) => pkg.try_into(),
+            Self::Type10(pkg) => pkg.try_into(),
+            Self::Type255(pkg) => pkg.try_into(),
         }
     }
 }

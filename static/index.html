@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <link href="/static/main.css" rel="stylesheet" />
+    <script src="/static/api.js"></script>
+    <title>Teilnehmerliste</title>
+  </head>
+  <body>
+    <a href="/static/new.html">neuen Eintrag anlegen</a>
+    <table id="table"></table>
+    <script>
+      var has_pin = false;
+      var table = document.getElementById("table");
+
+      function address(entry) {
+        if (~[2, 4, 5].indexOf(entry.client_type)) {
+          return entry.ipaddress;
+        } else {
+          return entry.hostname;
+        }
+      }
+
+      getPublicEntries(function(entries) {
+        if (entries.length == 0) return;
+
+        var keys = Object.keys(entries[0])
+          .filter(function(x) {
+            return (
+              x != "pin" &&
+              x != "hostname" &&
+              x != "ipaddress" &&
+              (x != "disabled" || has_pin)
+            );
+          })
+          .concat(["address"])
+          .sort();
+
+        var tr = document.createElement("tr");
+
+        for (var i in keys) {
+          var key = keys[i];
+
+          var th = document.createElement("th");
+          th.innerHTML = key;
+          tr.append(th);
+        }
+
+        table.append(tr);
+
+        for (var i in entries) {
+          var entry = entries[i];
+          var tr = document.createElement("tr");
+
+          tr.className = "row";
+
+          tr.onclick = function() {
+            window.location = "/static/entry.html?number=" + entry.number;
+          };
+
+          for (var i in keys) {
+            var key = keys[i];
+
+            var td = document.createElement("td");
+            td.innerHTML = key == "address" ? address(entry) : entry[key];
+            tr.append(td);
+          }
+
+          table.append(tr);
+        }
+      });
+    </script>
+  </body>
+</html>

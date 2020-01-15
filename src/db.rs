@@ -1,5 +1,5 @@
 use crate::{
-    errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Packages, CHANGED, CONFIG, DATABASE,
+    errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Entries, Entry, CHANGED, CONFIG, DATABASE,
 };
 use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
@@ -93,7 +93,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
              without a SERVER_PIN"
         );
 
-        let private_packages: Packages = packages.drain(..).collect();
+        let private_packages: Entries = packages.drain(..).collect();
 
         for mut package in private_packages.into_iter() {
             if !package.disabled {
@@ -119,8 +119,8 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn get_changed_entries() -> Packages {
-    let mut changed_entries: Packages = Vec::new();
+pub async fn get_changed_entries() -> Entries {
+    let mut changed_entries: Entries = Vec::new();
 
     {
         let db = DATABASE.read().await;
@@ -139,7 +139,7 @@ pub async fn get_changed_entries() -> Packages {
     changed_entries
 }
 
-pub async fn get_all_entries() -> Packages {
+pub async fn get_all_entries() -> Entries {
     DATABASE.write().await.iter().map(|(_, package)| package.clone()).collect()
 }
 
@@ -196,44 +196,15 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
     CHANGED.write().await.insert(number, ());
 
     Ok(())
-
-    /*
-    if let Some(entry) = get_entry_by_number(package.number).await {
-        if entry.client_type == 0 {
-            register_entry(
-                package.number,
-                package.pin,
-                package.port,
-                u32::from(ipaddress),
-                true,
-            )?
-            .expect("Failed to register entry"); // TODO: handle properly
-        } else if package.pin == entry.pin {
-            update_entry_address(package.port, u32::from(ipaddress), package.number)?
-                .expect("Failed to update entry address"); // TODO: handle properly
-        } else {
-            bail!(ItelexServerErrorKind::UserInputError);
-        }
-    } else {
-        register_entry(
-            package.number,
-            package.pin,
-            package.port,
-            u32::from(ipaddress),
-            false,
-        )?
-        .expect("Failed to register entry"); // TODO: handle properly
-    };
-    */
 }
 
-pub async fn update_entry(entry: Package5) {
+pub async fn update_entry(entry: Entry) {
     CHANGED.write().await.insert(entry.number, ());
 
     DATABASE.write().await.insert(entry.number, entry);
 }
 
-pub async fn update_entry_if_newer(entry: Package5) {
+pub async fn update_entry_if_newer(entry: Entry) {
     let mut db = DATABASE.write().await;
 
     let do_update =
@@ -259,17 +230,31 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
     true
 }
 
-pub async fn get_public_entries_by_pattern(pattern: &str) -> Packages {
-    let words: Vec<&str> = pattern.split(' ').collect();
-
-    DATABASE.read().await.iter().filter(|(_, e)| pattern_matches(&words, &e.name)).map(|(_, e)| e.clone()).collect()
+pub async fn get_public_entries() -> Entries {
+    DATABASE
+        .read()
+        .await
+        .iter()
+        .map(|(_, e)| e)
+        .filter(|e| !(e.disabled || e.client_type == 0))
+        .map(|e| {
+            let mut entry = e.clone();
+            entry.pin = 0;
+            entry
+        })
+        .collect()
 }
 
-pub async fn get_entry_by_number(number: u32) -> Option<Package5> {
+pub async fn get_public_entries_by_pattern(pattern: &str) -> Entries {
+    let words: Vec<&str> = pattern.split(' ').collect();
+    get_public_entries().await.into_iter().filter(|e| pattern_matches(&words, &e.name)).collect()
+}
+
+pub async fn get_entry_by_number(number: u32) -> Option<Entry> {
     DATABASE.read().await.get(&number).cloned()
 }
 
-pub async fn get_public_entry_by_number(number: u32) -> Option<Package5> {
+pub async fn get_public_entry_by_number(number: u32) -> Option<Entry> {
     DATABASE.read().await.get(&number).filter(|e| !(e.disabled || e.client_type == 0)).map(|e| {
         let mut entry = e.clone();
 

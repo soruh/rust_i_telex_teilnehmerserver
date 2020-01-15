@@ -45,7 +45,7 @@ macro_rules! parse_number {
 impl Config {
     pub async fn from_env() -> anyhow::Result<Self> {
         use std::env::var;
-        Ok(Config {
+        Ok(Self {
             CLIENT_TIMEOUT: parse_duration!("CLIENT_TIMEOUT"),
             SERVER_COOLDOWN: parse_duration!("SERVER_COOLDOWN"),
             CHANGED_SYNC_INTERVAL: parse_duration!("CHANGED_SYNC_INTERVAL"),

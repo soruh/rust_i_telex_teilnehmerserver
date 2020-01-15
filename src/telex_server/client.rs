@@ -1,9 +1,10 @@
+use super::{FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION};
 use crate::{
     db::*,
     errors::ItelexServerErrorKind,
     packages::*,
     serde::{deserialize, serialize},
-    Packages, CONFIG, FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION,
+    Entries, CONFIG,
 };
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
@@ -35,7 +36,7 @@ pub struct Client {
     pub address: SocketAddr,
     pub mode: Mode,
     pub state: State,
-    pub send_queue: Packages,
+    pub send_queue: Entries,
 }
 
 impl Drop for Client {
@@ -148,7 +149,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn peek_client_type(self: &mut Client) -> anyhow::Result<()> {
+    pub async fn peek_client_type(self: &mut Self) -> anyhow::Result<()> {
         assert_eq!(self.mode, Mode::Unknown);
 
         let mut buf = [0_u8; 1];
@@ -167,13 +168,13 @@ impl Client {
         Ok(())
     }
 
-    pub async fn consume_package(self: &mut Client) -> anyhow::Result<()> {
+    pub async fn consume_package(self: &mut Self) -> anyhow::Result<()> {
         assert_ne!(self.mode, Mode::Unknown);
 
         if self.mode == Mode::Binary { self.consume_package_binary().await } else { self.consume_package_ascii().await }
     }
 
-    pub async fn consume_package_ascii(self: &mut Client) -> anyhow::Result<()> {
+    pub async fn consume_package_ascii(self: &mut Self) -> anyhow::Result<()> {
         let mut lines = BufReader::new(&self.socket).lines();
 
         let line = lines
@@ -188,7 +189,7 @@ impl Client {
             bail!(ItelexServerErrorKind::UserInputError);
         }
 
-        if line.chars().nth(0).context(ItelexServerErrorKind::UserInputError)? == 'q' {
+        if line.chars().next().context(ItelexServerErrorKind::UserInputError)? == 'q' {
             let mut number = String::new();
 
             for character in line.chars().skip(1) {
@@ -238,7 +239,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn consume_package_binary(self: &mut Client) -> anyhow::Result<()> {
+    pub async fn consume_package_binary(self: &mut Self) -> anyhow::Result<()> {
         let mut header = [0_u8; 2];
 
         self.socket.read_exact(&mut header).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
@@ -262,7 +263,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn handle_package(self: &mut Client, package: Package) -> anyhow::Result<()> {
+    pub async fn handle_package(self: &mut Self, package: Package) -> anyhow::Result<()> {
         debug!("state: '{:?}'", self.state);
 
         match package {
