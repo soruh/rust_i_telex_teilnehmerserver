@@ -97,7 +97,7 @@ impl Package5 {
             0 => "-".into(),
             100 => "00".into(),
             110 => "0".into(),
-            x if x < 100 => x.to_string(),
+            x if x < 100 => format!("{:02}", x),
             x if x > 100 && x < 110 => (x - 100).to_string(),
             // x if x > 110 => {
             x => {
