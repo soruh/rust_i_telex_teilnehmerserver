@@ -3,7 +3,7 @@ use crate::{
     db::*,
     errors::ItelexServerErrorKind,
     packages::*,
-    serde::{deserialize, serialize},
+    telex_serde::{deserialize, serialize},
     Entries, CONFIG,
 };
 use anyhow::Context;
@@ -108,7 +108,10 @@ impl Client {
 
         debug!("sending package buffer: {:?}", package_buffer);
 
-        self.socket.write_all(package_buffer.as_slice()).await.context(ItelexServerErrorKind::FailedToWrite)?;
+        self.socket
+            .write_all(package_buffer.as_slice())
+            .await
+            .context(ItelexServerErrorKind::FailedToWrite)?;
 
         Ok(())
     }
@@ -154,7 +157,11 @@ impl Client {
 
         let mut buf = [0_u8; 1];
 
-        let len = self.socket.peek(&mut buf).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?; // read the first byte
+        let len = self
+            .socket
+            .peek(&mut buf)
+            .await
+            .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?; // read the first byte
         if len == 0 {
             bail!(ItelexServerErrorKind::ConnectionCloseUnexpected);
         }
@@ -171,7 +178,11 @@ impl Client {
     pub async fn consume_package(self: &mut Self) -> anyhow::Result<()> {
         assert_ne!(self.mode, Mode::Unknown);
 
-        if self.mode == Mode::Binary { self.consume_package_binary().await } else { self.consume_package_ascii().await }
+        if self.mode == Mode::Binary {
+            self.consume_package_binary().await
+        } else {
+            self.consume_package_ascii().await
+        }
     }
 
     pub async fn consume_package_ascii(self: &mut Self) -> anyhow::Result<()> {
@@ -202,16 +213,18 @@ impl Client {
 
             debug!("handling 'q' request");
 
-            let number = number.as_str().parse::<u32>().context(ItelexServerErrorKind::UserInputError)?;
+            let number =
+                number.as_str().parse::<u32>().context(ItelexServerErrorKind::UserInputError)?;
 
             debug!("parsed number: '{}'", number);
 
-            let message = if let Some(entry) = get_public_entry_by_number(number).await {
+            let message = if let Some(entry) = get_public_entry_by_number(number) {
                 let address = if let Some(hostname) = entry.hostname.as_ref() {
                     hostname.clone()
                 } else {
-                    let ipaddress =
-                        entry.ipaddress.context("database is incosistent: entry has neither hostname nor ipaddress")?;
+                    let ipaddress = entry.ipaddress.context(
+                        "database is incosistent: entry has neither hostname nor ipaddress",
+                    )?;
 
                     format!("{}", ipaddress)
                 };
@@ -229,7 +242,10 @@ impl Client {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)
             };
 
-            self.socket.write_all(message.as_bytes()).await.context(ItelexServerErrorKind::FailedToWrite)?
+            self.socket
+                .write_all(message.as_bytes())
+                .await
+                .context(ItelexServerErrorKind::FailedToWrite)?
         } else {
             bail!(ItelexServerErrorKind::UserInputError);
         }
@@ -242,7 +258,10 @@ impl Client {
     pub async fn consume_package_binary(self: &mut Self) -> anyhow::Result<()> {
         let mut header = [0_u8; 2];
 
-        self.socket.read_exact(&mut header).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
+        self.socket
+            .read_exact(&mut header)
+            .await
+            .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
         // debug!("header: {:?}", header);
         let [package_type, package_length] = header;
@@ -251,7 +270,10 @@ impl Client {
 
         let mut body = vec![0_u8; package_length as usize];
 
-        self.socket.read_exact(&mut body).await.context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
+        self.socket
+            .read_exact(&mut body)
+            .await
+            .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
         // debug!("body: {:?}", body);
         let package = deserialize(package_type, body.as_slice())?.try_into()?;
@@ -279,7 +301,7 @@ impl Client {
                     _ => bail!(ItelexServerErrorKind::Ipv6Address),
                 };
 
-                update_or_register_entry(package, ipaddress).await?;
+                update_or_register_entry(package, ipaddress)?;
                 self.send_package(Package::Type2(Package2 { ipaddress })).await?;
 
                 Ok(())
@@ -290,7 +312,7 @@ impl Client {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                if let Some(entry) = get_public_entry_by_number(package.number).await {
+                if let Some(entry) = get_public_entry_by_number(package.number) {
                     self.send_package(Package::Type5(entry)).await?;
                 } else {
                     self.send_package(Package::Type4(Package4 {})).await?;
@@ -304,7 +326,7 @@ impl Client {
                     bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
 
-                update_entry_if_newer(package).await;
+                update_entry_if_newer(package);
 
                 self.send_package(Package::Type8(Package8 {})).await?;
 
@@ -325,7 +347,7 @@ impl Client {
 
                 self.state = State::Responding;
 
-                self.send_queue.extend(get_all_entries().await);
+                self.send_queue.extend(get_all_entries());
 
                 self.send_queue_entry().await?;
 
@@ -379,7 +401,7 @@ impl Client {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
-                let entries = get_public_entries_by_pattern(&package.pattern).await;
+                let entries = get_public_entries_by_pattern(&package.pattern);
 
                 self.state = State::Responding;
 

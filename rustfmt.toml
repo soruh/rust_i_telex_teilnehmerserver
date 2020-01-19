@@ -4,7 +4,7 @@ edition = "2018"
 
 format_code_in_doc_comments = true
 wrap_comments = true
-max_width = 120
+max_width = 100
 comment_width = 80
 
 overflow_delimited_expr = true

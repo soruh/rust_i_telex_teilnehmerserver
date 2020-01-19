@@ -11,17 +11,69 @@
   <body>
     <a href="/static/index.html">zurück</a>
 
+    <form id="form"></form>
+
     <script>
-      var searchParams = new URLSearchParams(new URL(window.location).search);
-      var number = parseInt(searchParams.get("number"));
-      if (!number) window.location = "/";
+      function main(is_logged_in) {
+        let searchParams = new URLSearchParams(new URL(window.location).search);
+        let number = parseInt(searchParams.get("number"));
+        if (!number) {
+          window.location = "/";
+          return;
+        }
 
-      console.log("number:", number);
-      lookupNumber(number, function(entry) {
-        console.table(entry);
+        console.log("number:", number);
+        lookupNumber(number, function(entry) {
+          console.table(entry);
 
-        document.getElementById("title").innerHTML = entry.name;
-      });
+          document.getElementById("title").innerHTML = entry.name;
+
+          let keys = is_logged_in
+            ? [
+                "number",
+                "name",
+                "extension",
+                "ipaddress",
+                "hostname",
+                "client_type",
+                "port",
+                "timestamp",
+                "disabled"
+              ]
+            : [
+                "number",
+                "name",
+                "extension",
+                "ipaddress",
+                "hostname",
+                "client_type",
+                "port",
+                "timestamp"
+              ];
+
+          let form = document.getElementById("form");
+          console.log(keys);
+
+          for (let key of keys) {
+            let div = document.createElement("div");
+
+            let value =
+              key == "extension" ? stringifyExtension(entry[key]) : entry[key];
+
+            let span = document.createElement("span");
+            span.innerHTML = key;
+
+            let input = document.createElement("input");
+            input.value = value;
+
+            div.append(span);
+            div.append(input);
+
+            form.append(div);
+          }
+        });
+      }
     </script>
+    <script src="/static/main.js"></script>
   </body>
 </html>

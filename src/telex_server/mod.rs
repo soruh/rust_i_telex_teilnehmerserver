@@ -3,7 +3,7 @@ pub mod errors;
 pub mod background_tasks;
 pub mod client;
 pub mod packages;
-pub mod serde;
+pub mod telex_serde;
 
 use packages::*;
 
@@ -24,12 +24,12 @@ use super::*;
 use background_tasks::start_background_tasks;
 
 pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
-    #[allow(unreachable_code)]
     task::spawn(async move {
         if config!(SERVER_PIN) == 0 {
             warn!(
-                "The server is running without a SERVER_PIN. Server interaction will be reduced to publicly available \
-                 levels. DB sync will be disabled so that no private state is overwritten."
+                "The server is running without a SERVER_PIN. Server interaction will be reduced \
+                 to publicly available levels. DB sync will be disabled so that no private state \
+                 is overwritten."
             );
         }
 
@@ -100,7 +100,10 @@ async fn listen_for_connections(stop_loop: oneshot::Receiver<()>) -> anyhow::Res
     Ok(())
 }
 
-async fn handle_client_result(result: anyhow::Result<()>, client: &mut Client) -> anyhow::Result<()> {
+async fn handle_client_result(
+    result: anyhow::Result<()>,
+    client: &mut Client,
+) -> anyhow::Result<()> {
     let addr = client.address;
 
     if let Err(error) = result.as_ref() {

@@ -1,5 +1,6 @@
 use crate::{
-    errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Entries, Entry, CHANGED, CONFIG, DATABASE,
+    errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Entries, Entry,
+    CHANGED, CONFIG, DATABASE,
 };
 use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
@@ -50,14 +51,17 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 }
 
 pub async fn read_db_from_disk() -> anyhow::Result<()> {
+    use async_std::path::Path;
     use fs::File;
-    use std::{convert::TryFrom, path::Path};
+    use std::convert::TryFrom;
 
     info!("Reading entries from disk");
 
+    let fs_lock = FS_LOCK.lock().await;
+
     let db_path = Path::new(&config!(DB_PATH));
 
-    if !db_path.exists() {
+    if !db_path.exists().await {
         warn!("The database could not be found on disk. It will be created on the next sync.");
 
         return Ok(());
@@ -90,20 +94,22 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
 
     if config!(SERVER_PIN) == 0 {
         warn!(
-            "Removing pins from read DB entries and removing private ones as to not leak them, since we are running \
-             without a SERVER_PIN"
+            "Removing pins from read DB entries and removing private ones as to not leak them, \
+             since we are running without a SERVER_PIN"
         );
 
         let private_packages: Entries = packages.drain(..).collect();
 
         for mut package in private_packages.into_iter() {
-            if !package.disabled {
+            if !package.disabled() {
                 package.pin = 0;
 
                 packages.push(package);
             }
         }
     }
+
+    drop(fs_lock);
 
     info!("Writing {} read entries to in memory DB", packages.len());
 
@@ -118,7 +124,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn get_changed_entries() -> Entries {
+pub fn get_changed_entries() -> Entries {
     let mut changed_entries: Entries = Vec::new();
 
     // TODO: convert to `drain` once dashmap supports it
@@ -136,11 +142,11 @@ pub async fn get_changed_entries() -> Entries {
     changed_entries
 }
 
-pub async fn get_all_entries() -> Entries {
+pub fn get_all_entries() -> Entries {
     DATABASE.iter().map(|item| item.value().clone()).collect()
 }
 
-pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyhow::Result<()> {
+pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyhow::Result<()> {
     // Confirm that ipaddress is not unspecified, since this could lead to entries
     // with neither an ip nor a hostname
     if ipaddress.is_unspecified() {
@@ -151,7 +157,7 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
 
     let new_entry = Package5 {
         client_type: 5,
-        disabled: true,
+        flags: Package5::flags(true),
         extension: 0,
         hostname: None,
         ipaddress: Some(ipaddress),
@@ -193,15 +199,18 @@ pub async fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) ->
     Ok(())
 }
 
-pub async fn update_entry(entry: Entry) {
+pub fn update_entry(entry: Entry) {
     CHANGED.insert(entry.number, ());
 
     DATABASE.insert(entry.number, entry);
 }
 
-pub async fn update_entry_if_newer(entry: Entry) {
-    let do_update =
-        if let Some(existing) = DATABASE.get(&entry.number) { entry.timestamp > existing.timestamp } else { true };
+pub fn update_entry_if_newer(entry: Entry) {
+    let do_update = if let Some(existing) = DATABASE.get(&entry.number) {
+        entry.timestamp > existing.timestamp
+    } else {
+        true
+    };
 
     if do_update {
         // NOTE: we duplicate the code from above almost exactly here
@@ -223,10 +232,16 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
     true
 }
 
-pub async fn get_public_entries() -> Entries {
+pub fn get_public_entries() -> Entries {
+    get_entries_without_pin()
+        .into_iter()
+        .filter(|item| !(item.disabled() || item.client_type == 0))
+        .collect()
+}
+
+pub fn get_entries_without_pin() -> Entries {
     DATABASE
         .iter()
-        .filter(|item| !(item.value().disabled || item.value().client_type == 0))
         .map(|item| {
             let mut entry = item.value().clone();
             entry.pin = 0;
@@ -235,17 +250,17 @@ pub async fn get_public_entries() -> Entries {
         .collect()
 }
 
-pub async fn get_public_entries_by_pattern(pattern: &str) -> Entries {
+pub fn get_public_entries_by_pattern(pattern: &str) -> Entries {
     let words: Vec<&str> = pattern.split(' ').collect();
-    get_public_entries().await.into_iter().filter(|e| pattern_matches(&words, &e.name)).collect()
+    get_public_entries().into_iter().filter(|e| pattern_matches(&words, &e.name)).collect()
 }
 
-pub async fn get_entry_by_number(number: u32) -> Option<Entry> {
+pub fn get_entry_by_number(number: u32) -> Option<Entry> {
     DATABASE.get(&number).map(|item| item.value().clone())
 }
 
-pub async fn get_public_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.get(&number).filter(|e| !(e.disabled || e.client_type == 0)).map(|e| {
+pub fn get_public_entry_by_number(number: u32) -> Option<Entry> {
+    DATABASE.get(&number).filter(|e| !(e.disabled() || e.client_type == 0)).map(|e| {
         let mut entry = e.clone();
 
         entry.pin = 0;

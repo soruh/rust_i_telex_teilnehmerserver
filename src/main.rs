@@ -3,6 +3,7 @@
 
 #[macro_use] extern crate anyhow;
 #[macro_use] extern crate log;
+extern crate serde;
 
 macro_rules! config {
     ($key:ident) => {
@@ -80,25 +81,28 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let (stop_itelex_server, stopped_itelex_server) = oneshot::channel();
-    let itelex_server = telex_server::init(stopped_itelex_server);
-
     let (stop_web_server, stopped_web_server) = oneshot::channel();
-    let web_server = web_server::init(stopped_web_server);
 
-    if let Err(err) = register_exit_handler().await {
-        // swait until we should exit
-        error!("{:?}", anyhow!(err).context("Failed to register exit handler"));
-    }
+    let _ = futures::join! {
+        async {
+            if let Err(err) = web_server::init(stopped_web_server).await {
+                error!("{:?}", anyhow!(err).context("web server failed"));
+            }
+        },
+        async {
+            if let Err(err) = telex_server::init(stopped_itelex_server).await {
+                error!("{:?}", anyhow!(err).context("itelex server failed"));
+            }
+        },
+        async {
+            if let Err(err) = register_exit_handler().await {
+                error!("{:?}", anyhow!(err).context("Failed to register exit handler"));
+            }
 
-    let _ = stop_web_server.send(());
-    if let Err(err) = web_server.await {
-        error!("{:?}", anyhow!(err).context("web server failed"));
-    }
-
-    let _ = stop_itelex_server.send(());
-    if let Err(err) = itelex_server.await {
-        error!("{:?}", anyhow!(err).context("itelex server failed"));
-    }
+            let _ = stop_web_server.send(());
+            let _ = stop_itelex_server.send(());
+        }
+    };
 
     warn!("waiting for all tasks to finish");
 
@@ -133,7 +137,9 @@ async fn wait_for_task(task_id: usize) -> anyhow::Result<()> {
 }
 
 fn init_logger() -> anyhow::Result<()> {
-    use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode, WriteLogger};
+    use simplelog::{
+        CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode, WriteLogger,
+    };
     use std::fs::File;
 
     let log_level_from_string = |level: &str| -> anyhow::Result<LevelFilter> {

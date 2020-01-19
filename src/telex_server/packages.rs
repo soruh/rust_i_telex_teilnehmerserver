@@ -5,7 +5,7 @@ use std::{
     net::Ipv4Addr,
 };
 
-// ! This is disgusting, but neccessary until we get const generics
+// ! This is DISGUSTING, but neccessary until we get const generics
 pub struct ArrayImplWrapper<'a>(&'a [u8]);
 
 impl<'a> TryInto<[u8; LENGTH_TYPE_5]> for ArrayImplWrapper<'a> {
@@ -81,7 +81,7 @@ pub struct Package4 {}
 pub struct Package5 {
     pub number: u32,
     pub name: String,
-    pub disabled: bool,
+    pub flags: u16,
     pub client_type: u8,
     pub hostname: Option<String>,
     pub ipaddress: Option<Ipv4Addr>,
@@ -105,6 +105,14 @@ impl Package5 {
                 "-".into()
             }
         }
+    }
+
+    pub fn disabled(&self) -> bool {
+        self.flags & 2 == 0x02
+    }
+
+    pub fn flags(disabled: bool) -> u16 {
+        if disabled { 0x02 } else { 0x00 }
     }
 }
 
@@ -210,11 +218,7 @@ impl TryFrom<&[u8]> for Package5 {
         Ok(Self {
             number: u32::from_le_bytes(slice[0..4].try_into()?),
             name: string_from_slice(&slice[4..44])?,
-            disabled: {
-                let flags = u16::from_le_bytes(slice[44..46].try_into()?);
-
-                flags & 2 == 0x02
-            },
+            flags: u16::from_le_bytes(slice[44..46].try_into()?),
             client_type: u8::from_le_bytes(slice[46..47].try_into()?),
             hostname: {
                 let hostname = string_from_slice(&slice[47..87])?;
@@ -369,11 +373,9 @@ impl TryInto<Vec<u8>> for Package5 {
     fn try_into(self: Self) -> anyhow::Result<Vec<u8>> {
         let mut res: Vec<u8> = Vec::with_capacity(LENGTH_TYPE_5);
 
-        let flags: u16 = if self.disabled { 0x02 } else { 0 };
-
         res.write_all(&self.number.to_le_bytes())?;
         res.write_all(&array_from_string(self.name))?;
-        res.write_all(&flags.to_le_bytes())?;
+        res.write_all(&self.flags.to_le_bytes())?;
         res.write_all(&self.client_type.to_le_bytes())?;
         res.write_all(&array_from_string(self.hostname.unwrap_or_default()))?;
         res.write_all(&self.ipaddress.map(|e| e.octets()).unwrap_or([0, 0, 0, 0]))?;

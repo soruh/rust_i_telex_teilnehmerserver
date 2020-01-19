@@ -5,14 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <link href="/static/main.css" rel="stylesheet" />
-    <title>Neuen Eintrag anlegen</title>
+    <script src="/static/api.js"></script>
+    <title id="title">Eintrag</title>
   </head>
   <body>
     <a href="/static/index.html">zurück</a>
 
+    <form id="form"></form>
+
     <script>
       function main(is_logged_in) {
-        alert("TODO");
+        login("test password", res => console.log(res));
       }
     </script>
     <script src="/static/main.js"></script>

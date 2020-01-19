@@ -18,6 +18,10 @@ pub struct Config {
     pub LOG_FILE_PATH: Option<String>,
     pub LOG_LEVEL_FILE: Option<String>,
     pub LOG_LEVEL_TERM: Option<String>,
+
+    pub WEBSERVER_PORT: u16,
+    pub WEBSERVER_PASSWORD: String,
+    pub WEBSERVER_SESSION_LIFETIME: Duration,
 }
 
 macro_rules! get_variable {
@@ -36,9 +40,13 @@ macro_rules! parse_duration {
     };
 }
 
-macro_rules! parse_number {
+macro_rules! parse_from_str {
     ($name:literal) => {
-        get_variable!($name).parse().context(concat!("Failed to parse config variable ", $name, " as number"))?
+        get_variable!($name).parse().context(concat!(
+            "Failed to parse config variable ",
+            $name,
+            " as number"
+        ))?
     };
 }
 
@@ -51,14 +59,19 @@ impl Config {
             CHANGED_SYNC_INTERVAL: parse_duration!("CHANGED_SYNC_INTERVAL"),
             DB_SYNC_INTERVAL: parse_duration!("DB_SYNC_INTERVAL"),
             FULL_QUERY_INTERVAL: parse_duration!("FULL_QUERY_INTERVAL"),
-            SERVER_PORT: parse_number!("SERVER_PORT"),
-            SERVER_PIN: parse_number!("SERVER_PIN"),
+            SERVER_PORT: parse_from_str!("SERVER_PORT"),
+            SERVER_PIN: parse_from_str!("SERVER_PIN"),
             DB_PATH: get_variable!("DB_PATH"),
             DB_PATH_TEMP: get_variable!("DB_PATH_TEMP"),
             LOG_FILE_PATH: var("LOG_FILE_PATH").ok(),
             LOG_LEVEL_FILE: var("LOG_LEVEL_FILE").ok(),
             LOG_LEVEL_TERM: var("LOG_LEVEL_TERM").ok(),
-            SERVERS: parse_servers(get_variable!("SERVERS")).await.context("failed to parse servers")?,
+            WEBSERVER_PORT: parse_from_str!("WEBSERVER_PORT"),
+            WEBSERVER_PASSWORD: get_variable!("WEBSERVER_PASSWORD"),
+            WEBSERVER_SESSION_LIFETIME: parse_duration!("WEBSERVER_SESSION_LIFETIME"),
+            SERVERS: parse_servers(get_variable!("SERVERS"))
+                .await
+                .context("failed to parse servers")?,
         })
     }
 }
@@ -98,6 +111,7 @@ fn duration_from_string(input: String) -> anyhow::Result<Duration> {
             "m" => Ok(Duration::from_secs(number * 60)),
             "h" => Ok(Duration::from_secs(number * 60 * 60)),
             "d" => Ok(Duration::from_secs(number * 24 * 60 * 60)),
+            "w" => Ok(Duration::from_secs(number * 7 * 24 * 60 * 60)),
 
             _ => Err(anyhow!("unknown unit: `{}`", unit)),
         }

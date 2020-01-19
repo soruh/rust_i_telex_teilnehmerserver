@@ -12,65 +12,77 @@
     <a href="/static/new.html">neuen Eintrag anlegen</a>
     <table id="table"></table>
     <script>
-      var has_pin = false;
-      var table = document.getElementById("table");
+      function main(is_logged_in) {
+        let table = document.getElementById("table");
 
-      function address(entry) {
-        if (~[2, 4, 5].indexOf(entry.client_type)) {
-          return entry.ipaddress;
-        } else {
-          return entry.hostname;
-        }
-      }
+        getPublicEntries(function(entries) {
+          if (entries.length == 0) return;
 
-      getPublicEntries(function(entries) {
-        if (entries.length == 0) return;
+          let keys = is_logged_in
+            ? [
+                "number",
+                "name",
+                "extension",
+                "ipaddress",
+                "hostname",
+                "client_type",
+                "port",
+                "disabled"
+              ]
+            : [
+                "number",
+                "name",
+                "extension",
+                "ipaddress",
+                "hostname",
+                "client_type",
+                "port"
+              ];
 
-        var keys = Object.keys(entries[0])
-          .filter(function(x) {
-            return (
-              x != "pin" &&
-              x != "hostname" &&
-              x != "ipaddress" &&
-              (x != "disabled" || has_pin)
-            );
-          })
-          .concat(["address"])
-          .sort();
+          let tr = document.createElement("tr");
 
-        var tr = document.createElement("tr");
-
-        for (var i in keys) {
-          var key = keys[i];
-
-          var th = document.createElement("th");
-          th.innerHTML = key;
-          tr.append(th);
-        }
-
-        table.append(tr);
-
-        for (var i in entries) {
-          var entry = entries[i];
-          var tr = document.createElement("tr");
-
-          tr.className = "row";
-
-          tr.onclick = function() {
-            window.location = "/static/entry.html?number=" + entry.number;
-          };
-
-          for (var i in keys) {
-            var key = keys[i];
-
-            var td = document.createElement("td");
-            td.innerHTML = key == "address" ? address(entry) : entry[key];
-            tr.append(td);
+          for (let key of keys) {
+            let th = document.createElement("th");
+            th.innerHTML = key;
+            tr.append(th);
           }
 
           table.append(tr);
-        }
-      });
+
+          for (let entry of entries) {
+            let tr = document.createElement("tr");
+
+            tr.className = "row";
+            tr.onclick = () => {
+              window.location = "/static/entry.html?number=" + entry.number;
+            };
+
+            for (let key of keys) {
+              let td = document.createElement("td");
+
+              switch (key) {
+                case "address":
+                  td.innerHTML = ~[2, 4, 5].indexOf(entry.client_type)
+                    ? entry.ipaddress
+                    : entry.hostname;
+                  break;
+
+                case "extension":
+                  td.innerHTML = stringifyExtension(entry.extension) || "-";
+                  break;
+
+                default:
+                  td.innerHTML = entry[key];
+              }
+
+              tr.append(td);
+            }
+
+            table.append(tr);
+          }
+        });
+      }
     </script>
+    <script src="/static/main.js"></script>
   </body>
 </html>

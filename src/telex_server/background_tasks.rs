@@ -25,7 +25,10 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = sync_db_to_disk().await {
-                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
+                error!(
+                    "{:?}",
+                    anyhow!(err).context(format!("failed to run background task {}", name))
+                );
             }
             select! {
                 _ = exit => break,
@@ -45,7 +48,10 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = sync_changed(&mut server_senders).await {
-                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
+                error!(
+                    "{:?}",
+                    anyhow!(err).context(format!("failed to run background task {}", name))
+                );
             }
             select! {
                 _ = exit => break,
@@ -65,7 +71,10 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
         loop {
             debug!("running background task {:?}", name);
             if let Err(err) = full_query().await {
-                error!("{:?}", anyhow!(err).context(format!("failed to run background task {}", name)));
+                error!(
+                    "{:?}",
+                    anyhow!(err).context(format!("failed to run background task {}", name))
+                );
             }
             select! {
                 _ = exit => break,
@@ -88,7 +97,9 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
     client.state = State::Accepting;
 
     let pkg = if config!(SERVER_PIN) == 0 {
-        warn!("Sending empty peer search instead of full query, because no server pin was specified");
+        warn!(
+            "Sending empty peer search instead of full query, because no server pin was specified"
+        );
 
         Package::Type10(Package10 { version: PEER_SEARCH_VERSION, pattern: String::from("") })
     } else {
@@ -149,7 +160,12 @@ async fn update_server_with_packages(server: SocketAddr, packages: Entries) -> a
 
     client.state = State::Responding;
 
-    client.send_package(Package::Type7(Package7 { server_pin: config!(SERVER_PIN), version: LOGIN_VERSION })).await?;
+    client
+        .send_package(Package::Type7(Package7 {
+            server_pin: config!(SERVER_PIN),
+            version: LOGIN_VERSION,
+        }))
+        .await?;
 
     let task_id = start_handling_client(client).await;
 
@@ -190,7 +206,10 @@ fn update_other_servers(
                 // channel TODO: should we really do this?
                 while let Ok(additional) = receiver.try_next() {
                     if let Some(additional) = additional {
-                        debug!("Extending queue for client by {} additional packages", additional.len());
+                        debug!(
+                            "Extending queue for client by {} additional packages",
+                            additional.len()
+                        );
 
                         packages.extend(additional);
                     } else {
@@ -208,7 +227,10 @@ fn update_other_servers(
                 }
 
                 while let Err(err) = update_server_with_packages(server, packages.clone()).await {
-                    error!("{:?}", anyhow!(err).context(format!("Failed to update server {}", server)));
+                    error!(
+                        "{:?}",
+                        anyhow!(err).context(format!("Failed to update server {}", server))
+                    );
 
                     info!("retrying in: {:?}", config!(SERVER_COOLDOWN));
 
@@ -226,8 +248,10 @@ fn update_other_servers(
     (join_handles, senders, abort_senders)
 }
 
-async fn sync_changed(server_senders: &mut Vec<mpsc::UnboundedSender<Entries>>) -> anyhow::Result<()> {
-    let changed = get_changed_entries().await;
+async fn sync_changed(
+    server_senders: &mut Vec<mpsc::UnboundedSender<Entries>>,
+) -> anyhow::Result<()> {
+    let changed = get_changed_entries();
 
     if changed.is_empty() {
         return Ok(());
