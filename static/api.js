@@ -5,9 +5,10 @@ function apiCall(method, endpoint, callback, data) {
   xhr.onreadystatechange = function() {
     if (xhr.readyState === XMLHttpRequest.DONE) {
       if (xhr.status === 200) {
-        if (typeof callback === "function") callback(xhr.response);
+        if (typeof callback === "function") callback(null, xhr.response);
       } else {
         console.error("API call failed: " + xhr.response);
+        if (typeof callback === "function") callback(xhr.response, null);
       }
     }
   };

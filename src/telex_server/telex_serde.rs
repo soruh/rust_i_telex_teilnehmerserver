@@ -99,7 +99,7 @@ mod tests {
             84, 101, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // flags:
             2, 0, // client_type:
-            7, // hostname:
+            5, // hostname:
             104, 111, 115, 116, 46, 110, 97, 109, 101, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // ipaddress:
             8, 9, 0x0a, 0x0b, // port:
@@ -113,7 +113,7 @@ mod tests {
             number: 0x01_02_03_04,
             name: String::from("Test"),
             flags: Package5::flags(true),
-            client_type: 0x07,
+            client_type: ClientType::BaudotDynIp,
             hostname: Some(String::from("host.name")),
             ipaddress: Some(Ipv4Addr::from(0x08_09_0a_0b)),
             port: 0x0c_0d,

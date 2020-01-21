@@ -5,8 +5,6 @@ pub mod client;
 pub mod packages;
 pub mod telex_serde;
 
-use packages::*;
-
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
 const LOGIN_VERSION: u8 = 1;
@@ -24,35 +22,40 @@ use super::*;
 use background_tasks::start_background_tasks;
 
 pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
-    task::spawn(async move {
-        if config!(SERVER_PIN) == 0 {
-            warn!(
-                "The server is running without a SERVER_PIN. Server interaction will be reduced \
-                 to publicly available levels. DB sync will be disabled so that no private state \
-                 is overwritten."
-            );
-        }
+    task::spawn(
+        #[allow(unreachable_code)] // TODO
+        async move {
+            bail!(err_unimplemented!()); // TODO
 
-        let (background_task_handles, stop_background_tasks) = start_background_tasks();
-
-        info!("starting acccept loop");
-
-        if let Err(err) = listen_for_connections(stop_server).await {
-            error!("{:?}", anyhow!(err).context("Failed to await accept loop"));
-        }
-
-        warn!("shutting down itelex server");
-
-        warn!("stopping background tasks");
-        for stop_background_task in stop_background_tasks {
-            if stop_background_task.send(()).is_err() {
-                error!("Failed to stop a background task.");
+            if config!(SERVER_PIN) == 0 {
+                warn!(
+                    "The server is running without a SERVER_PIN. Server interaction will be \
+                     reduced to publicly available levels. DB sync will be disabled so that no \
+                     private state is overwritten."
+                );
             }
-        }
-        futures::future::join_all(background_task_handles).await;
 
-        Ok(())
-    })
+            let (background_task_handles, stop_background_tasks) = start_background_tasks();
+
+            info!("starting acccept loop");
+
+            if let Err(err) = listen_for_connections(stop_server).await {
+                error!("{:?}", anyhow!(err).context("Failed to await accept loop"));
+            }
+
+            warn!("shutting down itelex server");
+
+            warn!("stopping background tasks");
+            for stop_background_task in stop_background_tasks {
+                if stop_background_task.send(()).is_err() {
+                    error!("Failed to stop a background task.");
+                }
+            }
+            futures::future::join_all(background_task_handles).await;
+
+            Ok(())
+        },
+    )
 }
 
 async fn register_client(listen_res: std::io::Result<(TcpStream, SocketAddr)>) {

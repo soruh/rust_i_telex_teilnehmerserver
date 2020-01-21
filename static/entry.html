@@ -23,7 +23,7 @@
         }
 
         console.log("number:", number);
-        lookupNumber(number, function(entry) {
+        lookupNumber(number, function(err, entry) {
           console.table(entry);
 
           document.getElementById("title").innerHTML = entry.name;

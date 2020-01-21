@@ -15,7 +15,7 @@
 
     <script>
       function main(is_logged_in) {
-        login("test password", res => console.log(res));
+        login("test password", (err, res) => console.log(res));
       }
     </script>
     <script src="/static/main.js"></script>

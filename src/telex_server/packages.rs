@@ -1,3 +1,4 @@
+use crate::errors::ItelexServerErrorKind;
 use std::{
     convert::{TryFrom, TryInto},
     ffi::CString,
@@ -44,7 +45,56 @@ impl<'a> TryInto<[u8; LENGTH_TYPE_10]> for ArrayImplWrapper<'a> {
     }
 }
 
-use crate::errors::ItelexServerErrorKind;
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[repr(u8)]
+pub enum ClientType {
+    Deleted = 0,
+    BaudotHostname = 1,
+    BaudotIpaddress = 2,
+    AsciiHostname = 3,
+    AsciiIpaddress = 4,
+    BaudotDynIp = 5,
+    Email = 6,
+}
+
+impl std::fmt::Display for ClientType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as u8)
+    }
+}
+
+impl TryFrom<u8> for ClientType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value > 6 {
+            bail!("Invalid client type.");
+        }
+
+        Ok(unsafe { std::mem::transmute(value) })
+    }
+}
+
+impl serde::Serialize for ClientType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u8(*self as u8)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ClientType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use crate::serde::de::Error;
+
+        ClientType::try_from(u8::deserialize(deserializer)?).map_err(|err| D::Error::custom(err))
+    }
+}
+
 pub const LENGTH_TYPE_1: usize = 8;
 pub const LENGTH_TYPE_2: usize = 4;
 pub const LENGTH_TYPE_3: usize = 5;
@@ -77,12 +127,12 @@ pub struct Package3 {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Package4 {}
 
-#[derive(Debug, Eq, PartialEq, Clone, serde::Serialize)]
+#[derive(Debug, Eq, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Package5 {
     pub number: u32,
     pub name: String,
     pub flags: u16,
-    pub client_type: u8,
+    pub client_type: ClientType,
     pub hostname: Option<String>,
     pub ipaddress: Option<Ipv4Addr>,
     pub port: u16,
@@ -219,7 +269,7 @@ impl TryFrom<&[u8]> for Package5 {
             number: u32::from_le_bytes(slice[0..4].try_into()?),
             name: string_from_slice(&slice[4..44])?,
             flags: u16::from_le_bytes(slice[44..46].try_into()?),
-            client_type: u8::from_le_bytes(slice[46..47].try_into()?),
+            client_type: ClientType::try_from(u8::from_le_bytes(slice[46..47].try_into()?))?,
             hostname: {
                 let hostname = string_from_slice(&slice[47..87])?;
 
@@ -376,7 +426,7 @@ impl TryInto<Vec<u8>> for Package5 {
         res.write_all(&self.number.to_le_bytes())?;
         res.write_all(&array_from_string(self.name))?;
         res.write_all(&self.flags.to_le_bytes())?;
-        res.write_all(&self.client_type.to_le_bytes())?;
+        res.write_all(&(self.client_type as u8).to_le_bytes())?;
         res.write_all(&array_from_string(self.hostname.unwrap_or_default()))?;
         res.write_all(&self.ipaddress.map(|e| e.octets()).unwrap_or([0, 0, 0, 0]))?;
         res.write_all(&self.port.to_le_bytes())?;

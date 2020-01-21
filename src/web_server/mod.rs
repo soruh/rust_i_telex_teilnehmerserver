@@ -28,6 +28,12 @@ macro_rules! error {
     };
 }
 
+macro_rules! logged_in {
+    ($req:ident) => {
+        $req.local::<HasSession>().unwrap().0
+    };
+}
+
 const INDEX_HTML: &str = static_file!("index.html");
 const NEW_HTML: &str = static_file!("new.html");
 const ENTRY_HTML: &str = static_file!("entry.html");
@@ -81,8 +87,57 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             }
         });
 
+        api.at("/entry/:number").post(|mut req: Request<()>| async move {
+            // update entry at {number}, optionaly moving it to {body.number} if it differs
+            if !logged_in!(req) {
+                return error!("Not logged in");
+            }
+
+            let number: u32 = match req.param("number") {
+                Ok(number) => number,
+                Err(_) => return error!("failed to parse number"),
+            };
+
+            let mut entry: Entry = match req.body_json().await {
+                Ok(body) => body,
+                Err(_) => return error!("Failed to deserialize request"),
+            };
+
+            dbg!(&entry);
+
+            entry.pin = if let Some(mut old_entry) = DATABASE.get_mut(&number) {
+                old_entry.client_type = ClientType::Deleted; // delete old entry
+                old_entry.pin // keep it's pin
+            } else {
+                0 // no old entry => no pin
+            };
+
+            update_entry(entry); // overwrites old_entry if number == entry.number
+
+            ok!()
+        });
+
+        api.at("/reset_pin/:number").get(|req: Request<()>| async move {
+            if !logged_in!(req) {
+                return error!("Not logged in");
+            }
+
+            let number: u32 = match req.param("number") {
+                Ok(number) => number,
+                Err(_) => return error!("failed to parse number"),
+            };
+
+            if let Some(mut entry) = DATABASE.get_mut(&number) {
+                entry.pin = 0;
+            } else {
+                return error!("entry does not exist");
+            }
+
+            ok!()
+        });
+
         api.at("/entries").get(|req: Request<()>| async move {
-            let logged_in = req.local::<HasSession>().unwrap().0;
+            let logged_in = logged_in!(req);
             dbg!(logged_in);
 
             let result = if logged_in { get_entries_without_pin() } else { get_public_entries() };
@@ -91,7 +146,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
         });
 
         api.at("/login").post(|mut req: Request<()>| async move {
-            let logged_in = req.local::<HasSession>().unwrap().0;
+            let logged_in = logged_in!(req);
             if logged_in {
                 // we are already logged in and don't need to be logged in again.
 
@@ -125,7 +180,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
         });
 
         api.at("/logged-in").get(|req: Request<()>| async move {
-            let logged_in = req.local::<HasSession>().unwrap().0;
+            let logged_in = logged_in!(req);
 
             ok!()
                 .body_json(&LoggedInResponse(logged_in))

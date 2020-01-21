@@ -156,7 +156,7 @@ pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyho
     let number = package.number;
 
     let new_entry = Package5 {
-        client_type: 5,
+        client_type: ClientType::BaudotDynIp,
         flags: Package5::flags(true),
         extension: 0,
         hostname: None,
@@ -170,9 +170,9 @@ pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyho
 
     {
         if let Some(mut existing) = DATABASE.get_mut(&number) {
-            if existing.client_type == 0 {
+            if existing.client_type == ClientType::Deleted {
                 DATABASE.insert(number, new_entry);
-            } else if existing.client_type == 5 {
+            } else if existing.client_type == ClientType::BaudotDynIp {
                 if existing.pin == 0 {
                     // NOTE: overwrite 0 pins.
                     existing.pin = package.pin;
@@ -187,7 +187,10 @@ pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyho
                     bail!(ItelexServerErrorKind::PasswordError);
                 }
             } else {
-                bail!(ItelexServerErrorKind::InvalidClientType(existing.client_type, 5));
+                bail!(ItelexServerErrorKind::InvalidClientType(
+                    existing.client_type,
+                    ClientType::BaudotDynIp
+                ));
             }
         } else {
             DATABASE.insert(number, new_entry);
@@ -235,7 +238,7 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 pub fn get_public_entries() -> Entries {
     get_entries_without_pin()
         .into_iter()
-        .filter(|item| !(item.disabled() || item.client_type == 0))
+        .filter(|item| !(item.disabled() || item.client_type == ClientType::Deleted))
         .collect()
 }
 
@@ -260,11 +263,13 @@ pub fn get_entry_by_number(number: u32) -> Option<Entry> {
 }
 
 pub fn get_public_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.get(&number).filter(|e| !(e.disabled() || e.client_type == 0)).map(|e| {
-        let mut entry = e.clone();
+    DATABASE.get(&number).filter(|e| !(e.disabled() || e.client_type == ClientType::Deleted)).map(
+        |e| {
+            let mut entry = e.clone();
 
-        entry.pin = 0;
+            entry.pin = 0;
 
-        entry
-    })
+            entry
+        },
+    )
 }

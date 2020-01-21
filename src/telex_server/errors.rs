@@ -1,3 +1,4 @@
+use super::ClientType;
 use crate::State;
 use thiserror::Error;
 
@@ -16,8 +17,8 @@ pub enum ItelexServerErrorKind {
     #[error("Tried to update with an Ipv6 address")]
     Ipv6Address,
 
-    #[error("Invalid client typ. Was {}, but must be {}", _0, _1)]
-    InvalidClientType(u8, u8),
+    #[error("Invalid client typ. Was {:?}, but must be {:?}", _0, _1)]
+    InvalidClientType(ClientType, ClientType),
 
     #[error("Tried to use a wrong password")]
     PasswordError,

@@ -10,12 +10,13 @@
   </head>
   <body>
     <a href="/static/new.html">neuen Eintrag anlegen</a>
+    <a href="/static/login.html">einloggen</a>
     <table id="table"></table>
     <script>
       function main(is_logged_in) {
         let table = document.getElementById("table");
 
-        getPublicEntries(function(entries) {
+        getPublicEntries(function(err, entries) {
           if (entries.length == 0) return;
 
           let keys = is_logged_in

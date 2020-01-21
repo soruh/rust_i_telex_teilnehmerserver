@@ -7,13 +7,13 @@ description = "The I-Telex Server rewritten in rust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-once_cell = "1.3.0"
+once_cell = "1.3.1"
 anyhow = "1.0.26"
 thiserror = "1.0.9"
 async-std = { version = "1.4.0", features = ["attributes"] }
 futures = "0.3.1"
 simple-signal = {version = "1.1.1"}
-log = { version = "0.4.8", features = ["release_max_level_info"]}
+log = { version = "0.4.8", features = ["release_max_level_info"] }
 dotenv = "0.15.0"
 simplelog = "0.7.4"
 tide = "0.5.1"
@@ -21,5 +21,5 @@ mime = "0.3.16"
 serde = { version = "1.0.104", features = ["derive"] }
 serde_json = "1.0.44"
 dashmap = "3.2.1"
-cookie = "0.12"
+cookie = "0.13.0"
 rand = "0.7.3"
