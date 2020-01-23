@@ -70,6 +70,14 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
         server.middleware(cookie_parser::CookieParser);
         server.middleware(Lazy::force(&SESSION_STORE));
 
+        task::spawn(async move {
+            loop {
+                SESSION_STORE.remove_old_sessions();
+
+                task::sleep(config!(WEBSERVER_REMOVE_SESSIONS_INTERVAL)).await;
+            }
+        });
+
         server.at("/").get(redirect("/static/index.html"));
 
         let mut static_files = server.at("/static");

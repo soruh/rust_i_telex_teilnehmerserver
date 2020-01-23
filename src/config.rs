@@ -22,6 +22,7 @@ pub struct Config {
     pub WEBSERVER_PORT: u16,
     pub WEBSERVER_PASSWORD: String,
     pub WEBSERVER_SESSION_LIFETIME: Duration,
+    pub WEBSERVER_REMOVE_SESSIONS_INTERVAL: Duration,
 }
 
 macro_rules! get_variable {
@@ -69,6 +70,9 @@ impl Config {
             WEBSERVER_PORT: parse_from_str!("WEBSERVER_PORT"),
             WEBSERVER_PASSWORD: get_variable!("WEBSERVER_PASSWORD"),
             WEBSERVER_SESSION_LIFETIME: parse_duration!("WEBSERVER_SESSION_LIFETIME"),
+            WEBSERVER_REMOVE_SESSIONS_INTERVAL: parse_duration!(
+                "WEBSERVER_REMOVE_SESSIONS_INTERVAL"
+            ),
             SERVERS: parse_servers(get_variable!("SERVERS"))
                 .await
                 .context("failed to parse servers")?,

@@ -13,6 +13,15 @@ impl SessionMiddleware {
         Self { sessions: DashMap::new() }
     }
 
+    pub fn remove_old_sessions(&self) {
+        debug!("removing old webserver sessions");
+        debug!("# sessions before: {}", self.sessions.len());
+        self.sessions.retain(|_, created_at| {
+            Instant::now().duration_since(*created_at) < config!(WEBSERVER_SESSION_LIFETIME)
+        });
+        debug!("# sessions after: {}", self.sessions.len());
+    }
+
     fn generate_key() -> SessionKey {
         rand::random()
     }
