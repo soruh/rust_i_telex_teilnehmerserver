@@ -67,11 +67,17 @@ impl TryFrom<u8> for ClientType {
     type Error = anyhow::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value > 6 {
-            bail!("Invalid client type.");
-        }
+        Ok(match value {
+            0 => Self::Deleted,
+            1 => Self::BaudotHostname,
+            2 => Self::BaudotIpaddress,
+            3 => Self::AsciiHostname,
+            4 => Self::AsciiIpaddress,
+            5 => Self::BaudotDynIp,
+            6 => Self::Email,
 
-        Ok(unsafe { std::mem::transmute(value) })
+            _ => bail!("Invalid client type."),
+        })
     }
 }
 
