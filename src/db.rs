@@ -236,18 +236,19 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 }
 
 pub fn get_public_entries() -> Entries {
-    get_entries_without_pin()
+    get_sanitized_entries()
         .into_iter()
-        .filter(|item| !(item.disabled() || item.client_type == ClientType::Deleted))
+        .filter(|item: &Entry| !(item.disabled() || item.client_type == ClientType::Deleted))
         .collect()
 }
 
-pub fn get_entries_without_pin() -> Entries {
+pub fn get_sanitized_entries() -> Entries {
     DATABASE
         .iter()
         .map(|item| {
             let mut entry = item.value().clone();
             entry.pin = 0;
+            entry.flags &= 2;
             entry
         })
         .collect()
@@ -263,13 +264,16 @@ pub fn get_entry_by_number(number: u32) -> Option<Entry> {
 }
 
 pub fn get_public_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.get(&number).filter(|e| !(e.disabled() || e.client_type == ClientType::Deleted)).map(
-        |e| {
-            let mut entry = e.clone();
-
+    match DATABASE.get(&number) {
+        Some(entry) => {
+            let mut entry = entry.value().clone();
+            if entry.disabled() || entry.client_type == ClientType::Deleted {
+                dbg!(&entry);
+                return None;
+            }
             entry.pin = 0;
-
-            entry
-        },
-    )
+            Some(entry)
+        }
+        None => None,
+    }
 }

@@ -6,7 +6,7 @@ use super::*;
 use api_types::*;
 use cookie_parser::Cookies;
 use once_cell::sync::Lazy;
-use session::{set_session_cookie, HasSession};
+use session::{set_session_cookie, SessionKey, SessionKeyLocal};
 use std::{future::Future, pin::Pin};
 use tide::{redirect, Middleware, Next, Request, Response};
 
@@ -23,24 +23,30 @@ macro_rules! ok {
 }
 
 macro_rules! error {
-    ($error:literal) => {
-        Response::new(505).body_json(&InternalError($error)).unwrap_or_else(|_| Response::new(505))
+    ($error:expr) => {
+        error!($error, 505)
+    };
+
+    ($error:expr, $code:expr) => {
+        Response::new($code)
+            .body_json(&InternalError(String::from($error)))
+            .unwrap_or_else(|_| Response::new(505))
     };
 }
 
 macro_rules! logged_in {
     ($req:ident) => {
-        $req.local::<HasSession>().unwrap().0
+        $req.local::<SessionKeyLocal>().is_some()
     };
 }
 
 const INDEX_HTML: &str = static_file!("index.html");
-const NEW_HTML: &str = static_file!("new.html");
 const ENTRY_HTML: &str = static_file!("entry.html");
 const LOGIN_HTML: &str = static_file!("login.html");
 const MAIN_CSS: &str = static_file!("main.css");
 const API_JS: &str = static_file!("api.js");
 const MAIN_JS: &str = static_file!("main.js");
+const LOCALIZATIONS_DE: &str = static_file!("localizations_de.json");
 
 macro_rules! static_route {
     ($router:ident, $route:literal, $mime:literal, $body:ident) => {
@@ -68,7 +74,6 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
 
         let mut static_files = server.at("/static");
         static_route!(static_files, "/index.html", "text/html", INDEX_HTML);
-        static_route!(static_files, "/new.html", "text/html", NEW_HTML);
         static_route!(static_files, "/entry.html", "text/html", ENTRY_HTML);
         static_route!(static_files, "/login.html", "text/html", LOGIN_HTML);
         static_route!(static_files, "/api.js", "text/javascript", API_JS);
@@ -77,13 +82,22 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
 
         let mut api = server.at("/api");
         api.at("/entry/:number").get(|req: Request<()>| async move {
-            let number = req.param::<u32>("number");
-            if let Ok(number) = number {
-                ok!()
-                    .body_json(&get_public_entry_by_number(number))
-                    .unwrap_or_else(|_| error!("Failed to serialize result"))
+            let number = match req.param::<u32>("number") {
+                Ok(number) => number,
+                Err(_) => return error!("failed to parse number"),
+            };
+
+            let entry = if logged_in!(req) {
+                get_entry_by_number(number)
             } else {
-                error!("failed to parse number")
+                get_public_entry_by_number(number)
+            };
+
+            match entry {
+                Some(entry) => {
+                    ok!().body_json(&entry).unwrap_or_else(|_| error!("Failed to serialize result"))
+                }
+                None => error!("Not Found", 404),
             }
         });
 
@@ -103,14 +117,33 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
                 Err(_) => return error!("Failed to deserialize request"),
             };
 
-            dbg!(&entry);
+            {
+                // confirm entry format
+                use std::convert::TryInto;
+                let res: anyhow::Result<Vec<u8>> = entry.clone().try_into();
+                if let Err(err) = res {
+                    return error!(format!("Entry has invalid format: {:?}", err));
+                }
+            }
 
+            dbg!(number, &entry);
+
+            let current_timestamp = get_current_itelex_timestamp();
+            entry.timestamp = current_timestamp; // update the entry's timestamp
             entry.pin = if let Some(mut old_entry) = DATABASE.get_mut(&number) {
-                old_entry.client_type = ClientType::Deleted; // delete old entry
-                old_entry.pin // keep it's pin
+                let mut old_entry: &mut Entry = old_entry.value_mut();
+                if old_entry.number != number {
+                    old_entry.client_type = ClientType::Deleted; // delete old entry
+                    old_entry.timestamp = current_timestamp; // set it's timestamp to now
+                }
+                old_entry.pin // keep old pin
             } else {
                 0 // no old entry => no pin
-            };
+            }; // update the entry's pin
+
+            dbg!(&entry);
+
+            CHANGED.insert(number, ());
 
             update_entry(entry); // overwrites old_entry if number == entry.number
 
@@ -137,42 +170,53 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
         });
 
         api.at("/entries").get(|req: Request<()>| async move {
-            let logged_in = logged_in!(req);
-            dbg!(logged_in);
+            let result =
+                if logged_in!(req) { get_sanitized_entries() } else { get_public_entries() };
 
-            let result = if logged_in { get_entries_without_pin() } else { get_public_entries() };
+            ok!().body_json(&result).unwrap_or(error!("failed to serialize result"))
+        });
 
-            ok!().body_json(&result).unwrap_or(error!(""))
+        api.at("/logout").get(|req: Request<()>| async move {
+            if let Some(session_key) = req.local::<SessionKeyLocal>() {
+                let session_key: SessionKey = session_key.0;
+
+                assert!(SESSION_STORE.drop_session(&session_key).is_some());
+
+                set_session_cookie(
+                    ok!(),
+                    session_key,
+                    config!(WEBSERVER_SESSION_LIFETIME).as_secs() as i64,
+                )
+            } else {
+                // we are already logged out and can't to be logged out again.
+
+                return error!("Not logged in");
+            }
         });
 
         api.at("/login").post(|mut req: Request<()>| async move {
-            let logged_in = logged_in!(req);
-            if logged_in {
-                // we are already logged in and don't need to be logged in again.
+            if logged_in!(req) {
+                // we are already logged in and can't be logged in again.
 
-                return ok!();
+                return error!("Already logged in");
             }
 
             if let Ok(body) = req.body_json().await {
                 let body: LoginRequest = body;
 
-                dbg!(&body);
+                let success = body.password == config!(WEBSERVER_PASSWORD);
 
-                let (res, logged_in) = if body.password == config!(WEBSERVER_PASSWORD) {
-                    let session_key = SESSION_STORE.new_session();
-
-                    let res = set_session_cookie(
+                let res = if success {
+                    set_session_cookie(
                         ok!(),
-                        session_key,
+                        SESSION_STORE.new_session(),
                         config!(WEBSERVER_SESSION_LIFETIME).as_secs() as i64,
-                    );
-
-                    (res, true)
+                    )
                 } else {
-                    (ok!(), false)
+                    ok!()
                 };
 
-                res.body_json(&LoggedInResponse(logged_in))
+                res.body_json(&LoggedInResponse(success))
                     .unwrap_or(error!("Failed to serialize response"))
             } else {
                 error!("Failed to deserialize request")
@@ -185,6 +229,17 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             ok!()
                 .body_json(&LoggedInResponse(logged_in))
                 .unwrap_or(error!("Failed to serialize response"))
+        });
+
+        api.at("/localizations/:language").get(|req: Request<()>| async move {
+            let language = req.param::<String>("language").unwrap();
+            let language = match language.as_str() {
+                "de" => LOCALIZATIONS_DE,
+
+                _ => return error!("invalid language"),
+            };
+
+            ok!().body_string(String::from(language))
         });
 
         let addr = SocketAddr::new("0.0.0.0".parse().unwrap(), config!(WEBSERVER_PORT));

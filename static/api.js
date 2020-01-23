@@ -1,14 +1,21 @@
-function apiCall(method, endpoint, callback, data) {
+function api_call(method, endpoint, callback, data) {
   let xhr = new XMLHttpRequest();
 
   xhr.responseType = "json";
   xhr.onreadystatechange = function() {
     if (xhr.readyState === XMLHttpRequest.DONE) {
       if (xhr.status === 200) {
-        if (typeof callback === "function") callback(null, xhr.response);
+        if (typeof callback === "function") callback(xhr.response);
       } else {
-        console.error("API call failed: " + xhr.response);
-        if (typeof callback === "function") callback(xhr.response, null);
+        var err = xhr.response;
+        console.error(
+          "API call: " + method + " to " + endpoint + " failed: " + xhr.response
+        );
+
+        if (err) {
+          alert("Server Error: " + err);
+          throw err;
+        }
       }
     }
   };
@@ -22,39 +29,39 @@ function apiCall(method, endpoint, callback, data) {
   }
 }
 
-function lookupNumber(number, callback) {
-  apiCall("GET", "entry/" + number, callback);
+function inferDeletedField(entry) {
+  entry.disabled = Boolean(entry.flags & 2);
+  return entry;
 }
 
-function getPublicEntries(callback) {
-  apiCall("GET", "entries", callback);
+function get_entry(number, callback) {
+  api_call("GET", "entry/" + number, res => callback(inferDeletedField(res)));
+}
+
+function get_entries(callback) {
+  api_call("GET", "entries", res => callback(res.map(inferDeletedField)));
 }
 
 function login(password, callback) {
-  apiCall("POST", "login", callback, { password });
+  api_call("POST", "login", callback, { password });
+}
+
+function logout(callback) {
+  api_call("GET", "logout", callback);
 }
 
 function logged_in(callback) {
-  apiCall("GET", "logged-in", callback);
+  api_call("GET", "logged-in", callback);
 }
 
-function stringifyExtension(ext) {
-  if (ext === 0) return null;
-  if (ext >= 1 && ext <= 99) return ext.toString().padStart(2, "0");
-  if (ext === 100) return "00";
-  if (ext > 100 && ext < 110) return (ext - 100).toString();
-  if (ext === 110) return "0";
-  if (ext > 110 || ext < 0) return null; // invalid
+function post_entry(number, entry, callback) {
+  api_call("POST", "entry/" + number, callback, entry);
 }
 
-function parseExtension(ext) {
-  if (!ext) return 0;
-  if (isNaN(parseInt(ext))) return 0;
-  if (ext === "0") return 110;
-  if (ext === "00") return 100;
-  if (ext.length === 1) return parseInt(ext) + 100;
+function reset_pin(number, callback) {
+  api_call("GET", "reset_pin/" + number, callback);
+}
 
-  let res = parseInt(ext);
-  if (isNaN(res)) return null;
-  return res;
+function load_localizations(language, callback) {
+  api_call("GET", "localizations/" + language, callback);
 }

@@ -4,10 +4,10 @@ pub struct LoginRequest {
 }
 
 #[derive(serde::Serialize, Debug)]
-pub struct LoggedInResponse(pub bool);
+pub struct LoggedInResponse(pub bool); // TODO: remove?
 
 #[derive(Debug)]
-pub struct InternalError(pub &'static str);
+pub struct InternalError(pub String);
 
 #[cfg(debug_assertions)]
 impl serde::Serialize for InternalError {
@@ -15,7 +15,7 @@ impl serde::Serialize for InternalError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(self.0)
+        serializer.serialize_str(&self.0)
     }
 }
 

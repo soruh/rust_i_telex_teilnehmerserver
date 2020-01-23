@@ -1,9 +1,9 @@
 use super::*;
 use std::time::Instant;
 
-pub struct HasSession(pub bool);
+pub struct SessionKeyLocal(pub SessionKey);
 
-type SessionKey = u64;
+pub type SessionKey = u64;
 pub struct SessionMiddleware {
     pub sessions: DashMap<SessionKey, Instant>,
 }
@@ -28,6 +28,10 @@ impl SessionMiddleware {
 
         session_key
     }
+
+    pub fn drop_session(&self, session_key: &SessionKey) -> Option<(SessionKey, Instant)> {
+        self.sessions.remove(session_key)
+    }
 }
 
 pub fn set_session_cookie(response: Response, key: SessionKey, max_age: i64) -> Response {
@@ -46,8 +50,6 @@ impl<State: Send + Sync + 'static> Middleware<State> for &'static SessionMiddlew
                 .map(|cookies| cookies.iter().find(|cookie| cookie.name() == "session"))
                 .flatten();
 
-            dbg!(session_cookie);
-
             if let Some(session_cookie) = session_cookie {
                 let session = session_cookie
                     .value()
@@ -57,21 +59,23 @@ impl<State: Send + Sync + 'static> Middleware<State> for &'static SessionMiddlew
                     .flatten();
 
                 if let Some(session) = session {
+                    let session_key: SessionKey = *session.key();
+                    drop(session); // don't lock the session store while running the request
                     set_session_cookie(
-                        next.run(req.set_local(HasSession(true))).await,
-                        *session.key(),
+                        next.run(req.set_local(SessionKeyLocal(session_key))).await,
+                        session_key,
                         config!(WEBSERVER_SESSION_LIFETIME).as_secs() as i64,
                     )
                 } else {
                     // session does not exist
 
                     // delete session cookie
-                    let res = next.run(req.set_local(HasSession(false))).await;
+                    let res = next.run(req).await;
                     set_session_cookie(res, 0, -1)
                 }
             } else {
                 // user has no session
-                next.run(req.set_local(HasSession(false))).await
+                next.run(req).await
             }
         })
     }

@@ -1,0 +1,28 @@
+{
+  "yes": "Ja",
+  "no": "Nein",
+  "submit": "Absenden",
+  "password": "Passwort",
+  "client_types": {
+    "0": "Gelöscht",
+    "1": "Baudot Hostname",
+    "2": "Baudot IP-Addresse",
+    "3": "ASCII Hostname",
+    "4": "ASCII IP-Addresse",
+    "5": "Baudot DynIp",
+    "6": "E-Mail"
+  },
+  "labels": {
+    "number": "Nummer",
+    "name": "Name",
+    "extension": "Durchwahl",
+    "ipaddress": "Ip-Addresse",
+    "hostname": "Hostname",
+    "client_type": "Client Typ",
+    "port": "Port",
+    "timestamp": "Timestamp",
+    "disabled": "Deaktiviert",
+    "address": "Addresse"
+  },
+  "new_entry": "Neuen Eintrag anlegen"
+}

@@ -6,6 +6,7 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <link href="/static/main.css" rel="stylesheet" />
     <script src="/static/api.js"></script>
+    <script src="/static/main.js"></script>
     <title id="title">Eintrag</title>
   </head>
   <body>
@@ -16,64 +17,143 @@
     <script>
       function main(is_logged_in) {
         let searchParams = new URLSearchParams(new URL(window.location).search);
-        let number = parseInt(searchParams.get("number"));
-        if (!number) {
-          window.location = "/";
-          return;
+        number = parseInt(searchParams.get("number"));
+
+        if (number) {
+          get_entry(number, entry => {
+            document.getElementById("title").innerText = entry.name;
+            renderEntry(is_logged_in, entry);
+          });
+        } else {
+          if (is_logged_in) {
+            document.getElementById("title").innerText = locs.new_entry;
+            renderEntry(is_logged_in, null);
+          } else {
+            return (window.location = "/");
+          }
         }
 
-        console.log("number:", number);
-        lookupNumber(number, function(err, entry) {
-          console.table(entry);
+        if (is_logged_in) setFormHandler();
+      }
 
-          document.getElementById("title").innerHTML = entry.name;
+      function setFormHandler() {
+        document.addEventListener("submit", event => {
+          let target = event.target;
+          if (target == document.getElementById("form")) {
+            if (!number) number = parseInt(target.number.value);
+            let entry = {
+              number: parseInt(target.number.value),
+              name: target.name.value,
+              extension: parseExtension(target.extension.value),
+              ipaddress: target.ipaddress.value || null,
+              hostname: target.hostname.value || null,
+              client_type: parseInt(target.client_type.value),
+              port: parseInt(target.port.value),
+              flags: target.disabled.checked ? 2 : 0,
+              timestamp: 0,
+              pin: 0
+            };
+            post_entry(number, entry, () => (window.location = "/"));
 
-          let keys = is_logged_in
-            ? [
-                "number",
-                "name",
-                "extension",
-                "ipaddress",
-                "hostname",
-                "client_type",
-                "port",
-                "timestamp",
-                "disabled"
-              ]
-            : [
-                "number",
-                "name",
-                "extension",
-                "ipaddress",
-                "hostname",
-                "client_type",
-                "port",
-                "timestamp"
-              ];
-
-          let form = document.getElementById("form");
-          console.log(keys);
-
-          for (let key of keys) {
-            let div = document.createElement("div");
-
-            let value =
-              key == "extension" ? stringifyExtension(entry[key]) : entry[key];
-
-            let span = document.createElement("span");
-            span.innerHTML = key;
-
-            let input = document.createElement("input");
-            input.value = value;
-
-            div.append(span);
-            div.append(input);
-
-            form.append(div);
+            event.preventDefault();
           }
         });
       }
+
+      function renderEntry(is_logged_in, entry) {
+        let keys = [
+          "number",
+          "name",
+          "extension",
+          "ipaddress",
+          "hostname",
+          "client_type",
+          "port"
+        ];
+
+        keys.push(is_logged_in ? "disabled" : "timestamp");
+
+        if (!entry) {
+          entry = {};
+
+          for (key of keys) {
+            entry[key] = "";
+          }
+        }
+
+        let form = document.getElementById("form");
+        let table = document.createElement("table");
+        form.append(table);
+
+        for (let key of keys) {
+          if (is_logged_in) {
+            table.append(createRow(inputElem, key, entry[key]));
+          } else {
+            table.append(createRow(textElem, key, entry[key]));
+          }
+        }
+
+        if (is_logged_in) {
+          let submit = document.createElement("button");
+          submit.innerText = locs.submit;
+          form.append(submit);
+        }
+      }
+
+      function createRow(elemFunc, key, value) {
+        let tr = document.createElement("tr");
+
+        let label = document.createElement("td");
+        label.innerHTML = locs.labels[key];
+        tr.append(label);
+
+        let content = document.createElement("td");
+        content.append(elemFunc(key, value));
+        tr.append(content);
+
+        return tr;
+      }
+
+      function textElem(key, value) {
+        let data = document.createElement("span");
+        data.innerText = formatValue(key, value);
+        return data;
+      }
+
+      function inputElem(key, value) {
+        let input = document.createElement("input");
+        switch (key) {
+          case "extension":
+            input.value = value ? stringifyExtension(value) : value;
+            break;
+
+          case "disabled":
+            input.type = "checkbox";
+            input.checked = value;
+            break;
+
+          case "client_type":
+            input = document.createElement("select");
+            for (index in locs.client_types) {
+              let option = document.createElement("option");
+
+              option.value = parseInt(index);
+              option.innerText = locs.client_types[index];
+
+              input.append(option);
+            }
+
+            input.value = value;
+
+            break;
+
+          default:
+            input.value = value;
+            break;
+        }
+        input.name = key;
+        return input;
+      }
     </script>
-    <script src="/static/main.js"></script>
   </body>
 </html>

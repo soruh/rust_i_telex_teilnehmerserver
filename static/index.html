@@ -6,45 +6,120 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <link href="/static/main.css" rel="stylesheet" />
     <script src="/static/api.js"></script>
+    <script src="/static/main.js"></script>
     <title>Teilnehmerliste</title>
   </head>
   <body>
-    <a href="/static/new.html">neuen Eintrag anlegen</a>
-    <a href="/static/login.html">einloggen</a>
+    <a style="display: none" id="new" href="/static/entry.html">
+      neuen Eintrag anlegen
+    </a>
+    <a style="display: none" id="login" href="/static/login.html">log in</a>
+    <button
+      style="display: none"
+      id="logout"
+      onclick="logout(() => window.location = '/');"
+    >
+      log out
+    </button>
     <table id="table"></table>
     <script>
       function main(is_logged_in) {
-        let table = document.getElementById("table");
+        // TODO: rework
+        if (is_logged_in) {
+          document.getElementById("logout").style = "";
+          document.getElementById("new").style = "";
+        } else {
+          document.getElementById("login").style = "";
+        }
 
-        getPublicEntries(function(err, entries) {
+        reverse_entries = false;
+        sorting_key = "number";
+        keys = [
+          "number",
+          "name",
+          "extension",
+          "address",
+          "client_type",
+          "port",
+          "timestamp"
+        ];
+        if (is_logged_in) keys.push("disabled");
+
+        buildTable();
+      }
+
+      function changeSortingKey(new_sorting_key) {
+        if (sorting_key === new_sorting_key) {
+          reverse_entries = !reverse_entries;
+        } else {
+          sorting_key = new_sorting_key;
+          reverse_entries = false;
+        }
+      }
+
+      function clearTable() {
+        let table = document.getElementById("table");
+        while (table.firstChild) {
+          table.removeChild(table.firstChild);
+        }
+      }
+
+      function sortEntries(entries) {
+        if ("".localeCompare) {
+          var alphabeticalSort = (a, b) => (a || "").localeCompare(b || "");
+        } else {
+          var alphabeticalSort = (a, b) => {
+            a = a || "";
+            b = b || "";
+            if (a < b) return -1;
+            if (a > b) return 1;
+            return 0;
+          };
+        }
+
+        switch (sorting_key) {
+          case "number":
+          case "client_type":
+          case "port":
+          case "timestamp":
+          case "disabled":
+            sortingFunction = (a, b) => a - b;
+            break;
+          case "extension":
+            sortingFunction = (a, b) =>
+              alphabeticalSort(stringifyExtension(a), stringifyExtension(b));
+            break;
+          default:
+            sortingFunction = alphabeticalSort;
+        }
+
+        return entries.sort((a, b) =>
+          sortingFunction(a[sorting_key], b[sorting_key])
+        );
+      }
+
+      function buildTable() {
+        let table = document.getElementById("table");
+        get_entries(entries => {
+          clearTable();
+
           if (entries.length == 0) return;
 
-          let keys = is_logged_in
-            ? [
-                "number",
-                "name",
-                "extension",
-                "ipaddress",
-                "hostname",
-                "client_type",
-                "port",
-                "disabled"
-              ]
-            : [
-                "number",
-                "name",
-                "extension",
-                "ipaddress",
-                "hostname",
-                "client_type",
-                "port"
-              ];
+          entries = sortEntries(entries);
+
+          if (reverse_entries) entries = entries.reverse();
 
           let tr = document.createElement("tr");
+          tr.className = "row header-row";
 
           for (let key of keys) {
             let th = document.createElement("th");
-            th.innerHTML = key;
+            th.innerText = locs.labels[key];
+            th.className = "cell header-cell cell-" + key;
+            th.onclick = () => {
+              changeSortingKey(key);
+              buildTable();
+            };
             tr.append(th);
           }
 
@@ -53,7 +128,7 @@
           for (let entry of entries) {
             let tr = document.createElement("tr");
 
-            tr.className = "row";
+            tr.className = "row content-row";
             tr.onclick = () => {
               window.location = "/static/entry.html?number=" + entry.number;
             };
@@ -61,19 +136,21 @@
             for (let key of keys) {
               let td = document.createElement("td");
 
+              td.className = "cell content-cell cell-" + key;
+
               switch (key) {
                 case "address":
-                  td.innerHTML = ~[2, 4, 5].indexOf(entry.client_type)
+                  td.innerText = ~[2, 4, 5].indexOf(entry.client_type)
                     ? entry.ipaddress
                     : entry.hostname;
                   break;
 
                 case "extension":
-                  td.innerHTML = stringifyExtension(entry.extension) || "-";
+                  td.innerText = stringifyExtension(entry.extension);
                   break;
 
                 default:
-                  td.innerHTML = entry[key];
+                  td.innerText = formatValue(key, entry[key]);
               }
 
               tr.append(td);
@@ -84,6 +161,5 @@
         });
       }
     </script>
-    <script src="/static/main.js"></script>
   </body>
 </html>
