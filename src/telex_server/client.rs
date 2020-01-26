@@ -133,13 +133,13 @@ impl Client {
         }
 
         if let Some(package) = self.send_queue.pop() {
-            if let Err(err) = self.send_package(Package::Type5(package.clone())).await {
+            if let Err(err) = self.send_package(Package::PeerReply(package.clone())).await {
                 self.send_queue.push(package);
 
                 return Err(err);
             }
         } else {
-            self.send_package(Package::Type9(Package9 {})).await?;
+            self.send_package(Package::EndOfList(EndOfList {})).await?;
 
             self.shutdown()?; // TODO: check if this is correct (it should be)
         }
@@ -284,7 +284,7 @@ impl Client {
         debug!("state: '{:?}'", self.state);
 
         match package {
-            Package::Type1(package) => {
+            Package::ClientUpdate(package) => {
                 if self.state != State::Idle {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
@@ -297,37 +297,37 @@ impl Client {
                 };
 
                 update_or_register_entry(package, ipaddress)?;
-                self.send_package(Package::Type2(Package2 { ipaddress })).await?;
+                self.send_package(Package::AddressConfirm(AddressConfirm { ipaddress })).await?;
 
                 Ok(())
             }
-            // Package::Type2(package) => {}
-            Package::Type3(package) => {
+            // Package::AddressConfirm(package) => {}
+            Package::PeerQuery(package) => {
                 if self.state != State::Idle {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
                 if let Some(entry) = get_public_entry_by_number(package.number) {
-                    self.send_package(Package::Type5(entry)).await?;
+                    self.send_package(Package::PeerReply(entry)).await?;
                 } else {
-                    self.send_package(Package::Type4(Package4 {})).await?;
+                    self.send_package(Package::PeerNotFound(PeerNotFound {})).await?;
                 }
 
                 Ok(())
             }
-            // Package::Type4(_package) => {}
-            Package::Type5(package) => {
+            // Package::PeerNotFound(_package) => {}
+            Package::PeerReply(package) => {
                 if self.state != State::Accepting {
                     bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
 
                 update_entry_if_newer(package);
 
-                self.send_package(Package::Type8(Package8 {})).await?;
+                self.send_package(Package::Acknowledge(Acknowledge {})).await?;
 
                 Ok(())
             }
-            Package::Type6(package) => {
+            Package::FullQuery(package) => {
                 if package.version != FULL_QUERY_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -348,7 +348,7 @@ impl Client {
 
                 Ok(())
             }
-            Package::Type7(package) => {
+            Package::Login(package) => {
                 if package.version != LOGIN_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -365,11 +365,11 @@ impl Client {
 
                 self.state = State::Accepting;
 
-                self.send_package(Package::Type8(Package8 {})).await?;
+                self.send_package(Package::Acknowledge(Acknowledge {})).await?;
 
                 Ok(())
             }
-            Package::Type8(_package) => {
+            Package::Acknowledge(_package) => {
                 if self.state != State::Responding {
                     bail!(ItelexServerErrorKind::InvalidState(State::Responding, self.state));
                 }
@@ -378,7 +378,7 @@ impl Client {
 
                 Ok(())
             }
-            Package::Type9(_package) => {
+            Package::EndOfList(_package) => {
                 if self.state != State::Accepting {
                     bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
@@ -387,7 +387,7 @@ impl Client {
 
                 Ok(())
             }
-            Package::Type10(package) => {
+            Package::PeerSearch(package) => {
                 if package.version != PEER_SEARCH_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -406,7 +406,7 @@ impl Client {
 
                 Ok(())
             }
-            Package::Type255(package) => Err(anyhow!("remote error: {:?}", package.message)),
+            Package::Error(package) => Err(anyhow!("remote error: {:?}", package.message)),
 
             _ => Err(ItelexServerErrorKind::UserInputError.into()),
         }

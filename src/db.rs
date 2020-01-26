@@ -89,7 +89,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
             }
         }
 
-        packages.push(Package5::try_from(&buffer as &[u8])?);
+        packages.push(PeerReply::try_from(&buffer as &[u8])?);
     }
 
     if config!(SERVER_PIN) == 0 {
@@ -146,7 +146,7 @@ pub fn get_all_entries() -> Entries {
     DATABASE.iter().map(|item| item.value().clone()).collect()
 }
 
-pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyhow::Result<()> {
+pub fn update_or_register_entry(package: ClientUpdate, ipaddress: Ipv4Addr) -> anyhow::Result<()> {
     // Confirm that ipaddress is not unspecified, since this could lead to entries
     // with neither an ip nor a hostname
     if ipaddress.is_unspecified() {
@@ -155,9 +155,9 @@ pub fn update_or_register_entry(package: Package1, ipaddress: Ipv4Addr) -> anyho
 
     let number = package.number;
 
-    let new_entry = Package5 {
+    let new_entry = PeerReply {
         client_type: ClientType::BaudotDynIp,
-        flags: Package5::flags(true),
+        flags: PeerReply::flags(true),
         extension: 0,
         hostname: None,
         ipaddress: Some(ipaddress),

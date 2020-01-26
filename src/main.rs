@@ -48,7 +48,7 @@ use telex_server::*;
 pub type VoidJoinHandle = task::JoinHandle<()>;
 pub type ResultJoinHandle = task::JoinHandle<anyhow::Result<()>>;
 pub type TaskId = usize;
-pub type Entry = Package5;
+pub type Entry = PeerReply;
 pub type Entries = Vec<Entry>;
 
 // global state
