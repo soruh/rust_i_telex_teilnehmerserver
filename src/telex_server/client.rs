@@ -1,14 +1,9 @@
 use super::{FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION};
-use crate::{
-    db::*,
-    errors::ItelexServerErrorKind,
-    packages::*,
-    telex_serde::{deserialize, serialize},
-    Entries, CONFIG,
-};
+use crate::{db::*, errors::ItelexServerErrorKind, Entries, CONFIG};
 use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
 use futures::{future::FutureExt, select, stream::StreamExt};
+use itelex::server::*;
 use std::{
     convert::TryInto,
     net::{IpAddr, SocketAddr},
@@ -236,7 +231,7 @@ impl Client {
                     entry.client_type,
                     address,
                     entry.port,
-                    entry.extension_as_str(),
+                    entry.extension_as_str()?,
                 )
             } else {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)

@@ -35,8 +35,8 @@ use futures::{
     sink::SinkExt,
     stream::StreamExt,
 };
+pub use itelex::server::packages::{self as packages, *};
 use once_cell::sync::{Lazy, OnceCell};
-use packages::*;
 use std::{
     cell::RefCell,
     net::SocketAddr,
@@ -48,7 +48,7 @@ use telex_server::*;
 pub type VoidJoinHandle = task::JoinHandle<()>;
 pub type ResultJoinHandle = task::JoinHandle<anyhow::Result<()>>;
 pub type TaskId = usize;
-pub type Entry = packages::Package5;
+pub type Entry = Package5;
 pub type Entries = Vec<Entry>;
 
 // global state

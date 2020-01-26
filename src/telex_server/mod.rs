@@ -2,8 +2,6 @@
 pub mod errors;
 pub mod background_tasks;
 pub mod client;
-pub mod packages;
-pub mod telex_serde;
 
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
