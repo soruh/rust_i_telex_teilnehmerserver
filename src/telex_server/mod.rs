@@ -23,9 +23,9 @@ use background_tasks::start_background_tasks;
 
 pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
     task::spawn(
-        #[allow(unreachable_code)] // TODO
+        // #[allow(unreachable_code)] // TODO
         async move {
-            bail!(err_unimplemented!()); // TODO
+            // bail!(err_unimplemented!()); // TODO
 
             if config!(SERVER_PIN) == 0 {
                 warn!(
