@@ -24,5 +24,6 @@
     "disabled": "Deaktiviert",
     "address": "Addresse"
   },
-  "new_entry": "Neuen Eintrag anlegen"
+  "new_entry": "Neuen Eintrag anlegen",
+  "save_as_copy": "Als Kopie speichern"
 }

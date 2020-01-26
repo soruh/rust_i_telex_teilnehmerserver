@@ -38,6 +38,20 @@
 
       function setFormHandler() {
         document.addEventListener("submit", event => {
+          event.preventDefault();
+
+          let copy;
+          switch (event.explicitOriginalTarget.name) {
+            case "submit":
+              copy = false;
+              break;
+            case "save_as_copy":
+              copy = true;
+              break;
+            default:
+              return alert("invalid button clicked");
+          }
+
           let target = event.target;
           if (target == document.getElementById("form")) {
             if (!number) number = parseInt(target.number.value);
@@ -53,9 +67,11 @@
               timestamp: 0,
               pin: 0
             };
-            post_entry(number, entry, () => (window.location = "/"));
-
-            event.preventDefault();
+            post_entry(
+              copy ? entry.number : number,
+              entry,
+              () => (window.location = "/")
+            );
           }
         });
       }
@@ -95,8 +111,14 @@
 
         if (is_logged_in) {
           let submit = document.createElement("button");
+          submit.name = "submit";
           submit.innerText = locs.submit;
           form.append(submit);
+
+          let save_as_copy = document.createElement("button");
+          save_as_copy.name = "save_as_copy";
+          save_as_copy.innerText = locs.save_as_copy;
+          form.append(save_as_copy);
         }
       }
 
@@ -124,7 +146,7 @@
         let input = document.createElement("input");
         switch (key) {
           case "extension":
-            input.value = value ? stringifyExtension(value) : value;
+            input.value = value == "" ? "" : stringifyExtension(value);
             break;
 
           case "disabled":

@@ -134,24 +134,25 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
                 }
             }
 
-            dbg!(number, &entry);
+            if let Some(target) = DATABASE.get(&entry.number) {
+                if !(target.client_type == ClientType::Deleted || target.disabled()) {
+                    return error!(format!("Refused to overwrite existing target entry"));
+                }
+            }
 
             let current_timestamp = get_current_itelex_timestamp();
             entry.timestamp = current_timestamp; // update the entry's timestamp
             entry.pin = if let Some(mut old_entry) = DATABASE.get_mut(&number) {
                 let mut old_entry: &mut Entry = old_entry.value_mut();
-                if old_entry.number != number {
-                    old_entry.client_type = ClientType::Deleted; // delete old entry
-                    old_entry.timestamp = current_timestamp; // set it's timestamp to now
+                if entry.number != number {
+                    old_entry.client_type = ClientType::Deleted; // delete the old entry
+                    old_entry.timestamp = current_timestamp; // set it's timestamp to `now`
+                    CHANGED.insert(number, ()); // mark it as changed
                 }
                 old_entry.pin // keep old pin
             } else {
                 0 // no old entry => no pin
             }; // update the entry's pin
-
-            dbg!(&entry);
-
-            CHANGED.insert(number, ());
 
             update_entry(entry); // overwrites old_entry if number == entry.number
 
