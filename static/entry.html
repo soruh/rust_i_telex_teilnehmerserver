@@ -13,6 +13,7 @@
     <a href="/static/index.html">zurück</a>
 
     <form id="form"></form>
+    <button id="reset_pin" style="display: none;"></button>
 
     <script>
       function main(is_logged_in) {
@@ -33,7 +34,17 @@
           }
         }
 
-        if (is_logged_in) setFormHandler();
+        if (is_logged_in) {
+          setFormHandler();
+
+          if (number) {
+            let reset_pin_button = document.getElementById("reset_pin");
+            reset_pin_button.innerText = locs.reset_pin;
+            reset_pin_button.style = "";
+            reset_pin_button.onclick = () =>
+              reset_pin(number, () => alert(locs.reset_pin_done));
+          }
+        }
       }
 
       function setFormHandler() {
@@ -49,7 +60,7 @@
               copy = true;
               break;
             default:
-              return alert("invalid button clicked");
+              return;
           }
 
           let target = event.target;

@@ -134,9 +134,11 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
                 }
             }
 
-            if let Some(target) = DATABASE.get(&entry.number) {
-                if !(target.client_type == ClientType::Deleted || target.disabled()) {
-                    return error!(format!("Refused to overwrite existing target entry"));
+            if entry.number != number {
+                if let Some(target) = DATABASE.get(&entry.number) {
+                    if !(target.client_type == ClientType::Deleted || target.disabled()) {
+                        return error!(format!("Refused to overwrite existing target entry"));
+                    }
                 }
             }
 
