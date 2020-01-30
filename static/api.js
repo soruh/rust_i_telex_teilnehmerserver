@@ -54,8 +54,12 @@ function logged_in(callback) {
   api_call("GET", "logged-in", callback);
 }
 
-function post_entry(number, entry, callback) {
+function update_entry(number, entry, callback) {
   api_call("POST", "entry/" + number, callback, entry);
+}
+
+function new_entry(entry, callback) {
+  api_call("POST", "entry", callback, entry);
 }
 
 function reset_pin(number, callback) {

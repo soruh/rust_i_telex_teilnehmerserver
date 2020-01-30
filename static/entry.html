@@ -23,12 +23,12 @@
         if (number) {
           get_entry(number, entry => {
             document.getElementById("title").innerText = entry.name;
-            renderEntry(is_logged_in, entry);
+            renderEntry(is_logged_in, false, entry);
           });
         } else {
           if (is_logged_in) {
             document.getElementById("title").innerText = locs.new_entry;
-            renderEntry(is_logged_in, null);
+            renderEntry(is_logged_in, true, null);
           } else {
             return (window.location = "/");
           }
@@ -51,15 +51,19 @@
         document.addEventListener("submit", event => {
           event.preventDefault();
 
-          let copy;
+          let update;
           switch (event.explicitOriginalTarget.name) {
             case "submit":
-              copy = false;
+              update = true;
               break;
             case "save_as_copy":
-              copy = true;
+              update = false;
+              break;
+            case "new_entry":
+              update = false;
               break;
             default:
+              alert("invalid button pressed");
               return;
           }
 
@@ -78,16 +82,17 @@
               timestamp: 0,
               pin: 0
             };
-            post_entry(
-              copy ? entry.number : number,
-              entry,
-              () => (window.location = "/")
-            );
+
+            if (update) {
+              update_entry(number, entry, () => (window.location = "/"));
+            } else {
+              new_entry(entry, () => (window.location = "/"));
+            }
           }
         });
       }
 
-      function renderEntry(is_logged_in, entry) {
+      function renderEntry(is_logged_in, creating_entry, entry) {
         let keys = [
           "number",
           "name",
@@ -121,15 +126,22 @@
         }
 
         if (is_logged_in) {
-          let submit = document.createElement("button");
-          submit.name = "submit";
-          submit.innerText = locs.submit;
-          form.append(submit);
+          if (creating_entry) {
+            let new_entry = document.createElement("button");
+            new_entry.name = "new_entry";
+            new_entry.innerText = locs.new_entry_button;
+            form.append(new_entry);
+          } else {
+            let submit = document.createElement("button");
+            submit.name = "submit";
+            submit.innerText = locs.submit;
+            form.append(submit);
 
-          let save_as_copy = document.createElement("button");
-          save_as_copy.name = "save_as_copy";
-          save_as_copy.innerText = locs.save_as_copy;
-          form.append(save_as_copy);
+            let save_as_copy = document.createElement("button");
+            save_as_copy.name = "save_as_copy";
+            save_as_copy.innerText = locs.save_as_copy;
+            form.append(save_as_copy);
+          }
         }
       }
 

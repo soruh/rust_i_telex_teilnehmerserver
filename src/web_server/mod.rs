@@ -109,6 +109,40 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             }
         });
 
+        api.at("/entry").post(|mut req: Request<()>| async move {
+            if !logged_in!(req) {
+                return error!("Not logged in");
+            }
+
+            let mut entry: Entry = match req.body_json().await {
+                Ok(body) => body,
+                Err(_) => return error!("Failed to deserialize request"),
+            };
+
+            {
+                // confirm entry format
+                use std::convert::TryInto;
+                let res: anyhow::Result<Vec<u8>> = entry.clone().try_into();
+                if let Err(err) = res {
+                    return error!(format!("Entry has invalid format: {:?}", err));
+                }
+            }
+
+            if let Some(target) = DATABASE.get(&entry.number) {
+                if !(target.client_type == ClientType::Deleted || target.disabled()) {
+                    return error!(format!("Refused to overwrite existing entry"));
+                }
+            }
+
+            let current_timestamp = get_current_itelex_timestamp();
+            entry.timestamp = current_timestamp; // update the entry's timestamp
+            entry.pin = 0; // do _not_ write user supplied pins
+
+            update_entry(entry);
+
+            ok!()
+        });
+
         api.at("/entry/:number").post(|mut req: Request<()>| async move {
             // update entry at {number}, optionaly moving it to {body.number} if it differs
             if !logged_in!(req) {
@@ -151,9 +185,10 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
                     old_entry.timestamp = current_timestamp; // set it's timestamp to `now`
                     CHANGED.insert(number, ()); // mark it as changed
                 }
-                old_entry.pin // keep old pin
+
+                old_entry.pin
             } else {
-                0 // no old entry => no pin
+                return error!("entry does not exist");
             }; // update the entry's pin
 
             update_entry(entry); // overwrites old_entry if number == entry.number

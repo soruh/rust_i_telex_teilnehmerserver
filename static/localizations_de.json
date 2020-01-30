@@ -27,5 +27,6 @@
   "new_entry": "Neuen Eintrag anlegen",
   "save_as_copy": "Als Kopie speichern",
   "reset_pin": "PIN zurücksetzten",
-  "reset_pin_done": "PIN wurde zurückgesetzt"
+  "reset_pin_done": "PIN wurde zurückgesetzt",
+  "new_entry_button": "Eintrag anlegen"
 }
