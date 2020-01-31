@@ -78,7 +78,6 @@
         }
 
         switch (sorting_key) {
-          case "number":
           case "client_type":
           case "port":
           case "timestamp":
@@ -88,6 +87,10 @@
           case "extension":
             sortingFunction = (a, b) =>
               alphabeticalSort(stringifyExtension(a), stringifyExtension(b));
+            break;
+          case "number":
+            sortingFunction = (a, b) =>
+              alphabeticalSort(a.toString(), b.toString());
             break;
           default:
             sortingFunction = alphabeticalSort;

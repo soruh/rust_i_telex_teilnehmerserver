@@ -40,9 +40,16 @@ function formatValue(key, value) {
       break;
 
     case "timestamp":
-      value = new Date(
-        (value - ITELEX_TIMESTAMP_DELTA) * 1000
-      ).toLocaleString();
+      value = new Date((value - ITELEX_TIMESTAMP_DELTA) * 1000).toLocaleString(
+        undefined,
+        {
+          year: "2-digit",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
       break;
   }
 
