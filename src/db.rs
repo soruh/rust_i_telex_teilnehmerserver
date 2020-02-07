@@ -4,12 +4,13 @@ use crate::{
 };
 use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
-use std::{convert::TryInto, net::Ipv4Addr};
+use std::net::Ipv4Addr;
 
 static FS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub async fn sync_db_to_disk() -> anyhow::Result<()> {
-    use fs::{copy, remove_file, File};
+    use itelex::Serialize;
+    use std::fs::{copy, remove_file, File};
 
     if config!(SERVER_PIN) == 0 {
         warn!("Refused to sync DB to disk, so that no important data is overwritten.");
@@ -21,24 +22,21 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 
     info!("Syncing DB to disk");
 
-    let mut temp_file: File = File::create(&config!(DB_PATH_TEMP)).await?;
+    let mut temp_file: File = File::create(&config!(DB_PATH_TEMP))?;
 
     for item in DATABASE.iter() {
-        let entry = item.value();
-        let buffer: Vec<u8> = entry.clone().try_into()?;
-
-        temp_file.write_all(buffer.as_slice()).await?;
+        item.value().serialize_le(&mut temp_file)?;
     }
 
-    temp_file.sync_all().await?;
+    temp_file.sync_all()?;
 
     drop(temp_file);
 
     debug!("replacing database with temp file");
 
-    copy(&config!(DB_PATH_TEMP), &config!(DB_PATH)).await?;
+    copy(&config!(DB_PATH_TEMP), &config!(DB_PATH))?;
 
-    remove_file(&config!(DB_PATH_TEMP)).await?;
+    remove_file(&config!(DB_PATH_TEMP))?;
 
     // NOTE: we do not use rename here to make sure we only delete the temp file
     // only gets deleted if we successfully copied it to the final file
@@ -53,7 +51,7 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 pub async fn read_db_from_disk() -> anyhow::Result<()> {
     use async_std::path::Path;
     use fs::File;
-    use std::convert::TryFrom;
+    use itelex::Deserialize;
 
     info!("Reading entries from disk");
 
@@ -89,7 +87,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
             }
         }
 
-        packages.push(PeerReply::try_from(&buffer as &[u8])?);
+        packages.push(PeerReply::deserialize_le(&mut std::io::Cursor::new(buffer.as_mut()))?);
     }
 
     if config!(SERVER_PIN) == 0 {
@@ -159,8 +157,8 @@ pub fn update_or_register_entry(package: ClientUpdate, ipaddress: Ipv4Addr) -> a
         client_type: ClientType::BaudotDynIp,
         flags: PeerReply::flags(true),
         extension: 0,
-        hostname: None,
-        ipaddress: Some(ipaddress),
+        hostname: "".into(),
+        ipaddress,
         name: "?".into(),
         number,
         pin: package.pin,
@@ -181,7 +179,7 @@ pub fn update_or_register_entry(package: ClientUpdate, ipaddress: Ipv4Addr) -> a
                 }
 
                 if package.pin == existing.pin {
-                    existing.ipaddress = Some(ipaddress);
+                    existing.ipaddress = ipaddress;
                     existing.timestamp = get_current_itelex_timestamp();
                 } else {
                     bail!(ItelexServerErrorKind::PasswordError);

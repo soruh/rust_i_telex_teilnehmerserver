@@ -101,7 +101,10 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
             "Sending empty peer search instead of full query, because no server pin was specified"
         );
 
-        Package::PeerSearch(PeerSearch { version: PEER_SEARCH_VERSION, pattern: String::from("") })
+        Package::PeerSearch(PeerSearch {
+            version: PEER_SEARCH_VERSION,
+            pattern: String::from("").into(),
+        })
     } else {
         Package::FullQuery(FullQuery {
             version: FULL_QUERY_VERSION,

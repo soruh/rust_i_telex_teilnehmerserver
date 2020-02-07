@@ -3,7 +3,6 @@ use crate::State;
 use thiserror::Error;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Error)]
-
 pub enum ItelexServerErrorKind {
     #[error("Failed to write to the client socket.")]
     FailedToWrite,

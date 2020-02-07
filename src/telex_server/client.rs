@@ -4,10 +4,7 @@ use anyhow::Context;
 use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
 use futures::{future::FutureExt, select, stream::StreamExt};
 use itelex::server::*;
-use std::{
-    convert::TryInto,
-    net::{IpAddr, SocketAddr},
-};
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Debug, PartialEq, Eq)]
 
@@ -89,17 +86,13 @@ impl Client {
     }
 
     pub async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
+        use itelex::Serialize;
         debug!("sending package: {:#?}", package);
 
-        let package_type = package.package_type();
-        let body = serialize(package.try_into()?)?;
-        let package_length = body.len() as u8;
+        let mut package_buffer = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut package_buffer);
 
-        let header = [package_type, package_length];
-
-        let mut package_buffer = Vec::with_capacity(body.len() + 2);
-        package_buffer.extend(&header);
-        package_buffer.extend(body);
+        package.serialize_le(&mut cursor)?;
 
         debug!("sending package buffer: {:?}", package_buffer);
 
@@ -214,10 +207,10 @@ impl Client {
             debug!("parsed number: '{}'", number);
 
             let message = if let Some(entry) = get_public_entry_by_number(number) {
-                let address = if let Some(hostname) = entry.hostname.as_ref() {
-                    hostname.clone()
+                let address = if let Some(hostname) = entry.hostname() {
+                    String::from(hostname)
                 } else {
-                    let ipaddress = entry.ipaddress.context(
+                    let ipaddress = entry.ipaddress().context(
                         "database is incosistent: entry has neither hostname nor ipaddress",
                     )?;
 
@@ -227,11 +220,13 @@ impl Client {
                 format!(
                     "ok\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}\r\n+++\r\n",
                     entry.number,
-                    entry.name,
+                    entry.name.0,
                     entry.client_type,
                     address,
                     entry.port,
-                    entry.extension_as_str()?,
+                    entry
+                        .extension_as_str()
+                        .map_err(|ext| anyhow!(format!("ivalid extension: {}", ext)))?,
                 )
             } else {
                 format!("fail\r\n{}\r\nunknown\r\n+++\r\n", number)
@@ -251,6 +246,7 @@ impl Client {
     }
 
     pub async fn consume_package_binary(self: &mut Self) -> anyhow::Result<()> {
+        use itelex::Deserialize;
         let mut header = [0_u8; 2];
 
         self.socket
@@ -263,15 +259,14 @@ impl Client {
 
         debug!("reading package of type: {} with length: {}", package_type, package_length);
 
-        let mut body = vec![0_u8; package_length as usize];
+        let mut buffer = vec![0_u8; package_length as usize + 2];
 
         self.socket
-            .read_exact(&mut body)
+            .read_exact(&mut buffer)
             .await
             .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
-        // debug!("body: {:?}", body);
-        let package = deserialize(package_type, body.as_slice())?.try_into()?;
+        let package = Package::deserialize_le(&mut std::io::Cursor::new(buffer))?;
 
         debug!("received package: {:#?}", package);
 

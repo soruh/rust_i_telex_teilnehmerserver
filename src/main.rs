@@ -35,7 +35,7 @@ use futures::{
     sink::SinkExt,
     stream::StreamExt,
 };
-pub use itelex::server::packages::{self as packages, *};
+pub use itelex::server::{self as packages, *};
 use once_cell::sync::{Lazy, OnceCell};
 use std::{
     cell::RefCell,

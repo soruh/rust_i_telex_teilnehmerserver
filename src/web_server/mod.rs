@@ -120,10 +120,9 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             };
 
             {
+                use itelex::Serialize;
                 // confirm entry format
-                use std::convert::TryInto;
-                let res: anyhow::Result<Vec<u8>> = entry.clone().try_into();
-                if let Err(err) = res {
+                if let Err(err) = entry.clone().serialize_le(&mut Vec::new()) {
                     return error!(format!("Entry has invalid format: {:?}", err));
                 }
             }
@@ -160,10 +159,9 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             };
 
             {
+                use itelex::Serialize;
                 // confirm entry format
-                use std::convert::TryInto;
-                let res: anyhow::Result<Vec<u8>> = entry.clone().try_into();
-                if let Err(err) = res {
+                if let Err(err) = entry.clone().serialize_le(&mut Vec::new()) {
                     return error!(format!("Entry has invalid format: {:?}", err));
                 }
             }

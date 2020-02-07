@@ -103,6 +103,22 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "binserde"
+version = "0.1.1"
+source = "git+https://github.com/soruh/binserde#712dac05693fa99798f5a8b765ad26a559ef333a"
+
+[[package]]
+name = "binserde-derive"
+version = "0.1.1"
+source = "git+https://github.com/soruh/binserde#712dac05693fa99798f5a8b765ad26a559ef333a"
+dependencies = [
+ "binserde 0.1.1 (git+https://github.com/soruh/binserde)",
+ "proc-macro2 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quote 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 1.0.14 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,12 +623,12 @@ dependencies = [
 
 [[package]]
 name = "itelex"
-version = "0.0.3"
-source = "git+https://github.com/soruh/itelex_rust.git#866db8eb4dc6ec21b1f63082b60616e0cf1d5453"
+version = "0.1.2"
+source = "git+https://github.com/soruh/itelex_rust.git#8456b82f35eec02f91fe9cf9ab4b04eae1bb5344"
 dependencies = [
- "anyhow 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "binserde 0.1.1 (git+https://github.com/soruh/binserde)",
+ "binserde-derive 0.1.1 (git+https://github.com/soruh/binserde)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
- "thiserror 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -924,7 +940,7 @@ dependencies = [
  "dashmap 3.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "dotenv 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "itelex 0.0.3 (git+https://github.com/soruh/itelex_rust.git)",
+ "itelex 0.1.2 (git+https://github.com/soruh/itelex_rust.git)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "mime 0.3.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "once_cell 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1360,6 +1376,8 @@ dependencies = [
 "checksum backtrace 0.3.42 (registry+https://github.com/rust-lang/crates.io-index)" = "b4b1549d804b6c73f4817df2ba073709e96e426f12987127c48e6745568c350b"
 "checksum backtrace-sys 0.1.32 (registry+https://github.com/rust-lang/crates.io-index)" = "5d6575f128516de27e3ce99689419835fce9643a9b215a14d2b5b685be018491"
 "checksum base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
+"checksum binserde 0.1.1 (git+https://github.com/soruh/binserde)" = "<none>"
+"checksum binserde-derive 0.1.1 (git+https://github.com/soruh/binserde)" = "<none>"
 "checksum bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 "checksum blake2b_simd 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)" = "d8fb2d74254a3a0b5cac33ac9f8ed0e44aa50378d9dbb2e5d83bd21ed1dc2c8a"
 "checksum broadcaster 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "07a1446420a56f1030271649ba0da46d23239b3a68c73591cea5247f15a788a0"
@@ -1417,7 +1435,7 @@ dependencies = [
 "checksum hyper 0.12.35 (registry+https://github.com/rust-lang/crates.io-index)" = "9dbe6ed1438e1f8ad955a4701e9a944938e9519f6888d12d8558b645e247d5f6"
 "checksum indexmap 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0b54058f0a6ff80b6803da8faf8997cde53872b38f4023728f6830b06cd3c0dc"
 "checksum iovec 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "b2b3ea6ff95e175473f8ffe6a7eb7c00d054240321b84c57051175fe3c1e075e"
-"checksum itelex 0.0.3 (git+https://github.com/soruh/itelex_rust.git)" = "<none>"
+"checksum itelex 0.1.2 (git+https://github.com/soruh/itelex_rust.git)" = "<none>"
 "checksum itoa 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "b8b7a7c0c47db5545ed3fef7468ee7bb5b74691498139e4b3f6a20685dc6dd8e"
 "checksum kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 "checksum kv-log-macro 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8c54d9f465d530a752e6ebdc217e081a7a614b48cb200f6f0aee21ba6bc9aabb"
