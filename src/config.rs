@@ -1,5 +1,4 @@
 use anyhow::Context;
-use async_std::net::ToSocketAddrs;
 use std::{net::SocketAddr, time::Duration};
 
 #[derive(Debug)]
@@ -81,24 +80,30 @@ impl Config {
 }
 
 async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
-    let mut servers = Vec::new();
+    let mut servers: Vec<SocketAddr> = Vec::new();
 
     for entry in input.split(',') {
         if entry == "" {
             continue;
         }
 
-        let socket_addrs = entry.trim().to_socket_addrs().await?;
+        // use tokio::net::ToSocketAddrs;
+        // let socket_addrs = entry.trim().to_socket_addrs().await?;
+
+        use tokio::net::lookup_host;
+        let mut socket_addrs: Vec<SocketAddr> = lookup_host(entry.trim()).await?.collect();
 
         // only use the first result to prevent syncing a server twice
         // (e.g. if there is both an Ipv4 and an Ipv6 address for a server)
         // We prefer ipv4 addresses, since older servers only listen on those
-        let ipv4 = socket_addrs.clone().find(|addr| addr.is_ipv4());
+        let ipv4 = socket_addrs.iter().find(|addr| addr.is_ipv4());
 
         if let Some(addr) = ipv4 {
-            servers.push(addr);
+            servers.push(*addr);
         } else {
-            servers.extend(socket_addrs.take(1));
+            if !socket_addrs.is_empty() {
+                servers.push(socket_addrs.remove(0));
+            }
         }
     }
 

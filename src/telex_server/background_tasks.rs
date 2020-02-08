@@ -19,7 +19,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
     let (abort_sender, abort_receiver) = oneshot::channel();
     abort_senders.push(abort_sender);
     join_handles.push(task::spawn(async move {
-        task::sleep(Duration::from_secs(1)).await;
+        tokio::time::delay_for(Duration::from_secs(1)).await;
         info!("starting {:?} background task", name);
         let mut exit = abort_receiver.fuse();
         loop {
@@ -32,7 +32,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(config!(DB_SYNC_INTERVAL)).fuse() => continue,
+                _ = tokio::time::delay_for(config!(DB_SYNC_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -42,7 +42,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
     let (abort_sender, abort_receiver) = oneshot::channel();
     abort_senders.push(abort_sender);
     join_handles.push(task::spawn(async move {
-        task::sleep(Duration::from_secs(3)).await;
+        tokio::time::delay_for(Duration::from_secs(3)).await;
         info!("starting {:?} background task", name);
         let mut exit = abort_receiver.fuse();
         loop {
@@ -55,7 +55,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(config!(CHANGED_SYNC_INTERVAL)).fuse() => continue,
+                _ = tokio::time::delay_for(config!(CHANGED_SYNC_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -65,7 +65,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
     let (abort_sender, abort_receiver) = oneshot::channel();
     abort_senders.push(abort_sender);
     join_handles.push(task::spawn(async move {
-        task::sleep(Duration::from_secs(2)).await;
+        tokio::time::delay_for(Duration::from_secs(2)).await;
         info!("starting {:?} background task", name);
         let mut exit = abort_receiver.fuse();
         loop {
@@ -78,7 +78,7 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
             }
             select! {
                 _ = exit => break,
-                _ = task::sleep(config!(FULL_QUERY_INTERVAL)).fuse() => continue,
+                _ = tokio::time::delay_for(config!(FULL_QUERY_INTERVAL)).fuse() => continue,
             }
         }
         info!("stopped {:?} background task", name);
@@ -206,7 +206,7 @@ fn update_other_servers(
             'outer: while let Some(mut packages) = receiver.next().await {
                 debug!("Received {} initial packages", packages.len());
 
-                task::sleep(Duration::from_millis(10)).await;
+                tokio::time::delay_for(Duration::from_millis(10)).await;
 
                 // Wait a bit, in case there are more packages on the way, but not yet in the
                 // channel TODO: should we really do this?
@@ -242,7 +242,7 @@ fn update_other_servers(
 
                     select! {
                         res = abort_receiver => if res.is_ok() { break 'outer; },
-                        _ = task::sleep(config!(SERVER_COOLDOWN)).fuse() => {},
+                        _ = tokio::time::delay_for(config!(SERVER_COOLDOWN)).fuse() => {},
                     }
                 }
             }

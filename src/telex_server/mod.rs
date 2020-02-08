@@ -70,14 +70,15 @@ async fn register_client(listen_res: std::io::Result<(TcpStream, SocketAddr)>) {
 async fn listen_for_connections(stop_loop: oneshot::Receiver<()>) -> anyhow::Result<()> {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    let ipv4_listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, config!(SERVER_PORT))).await?;
+    let mut ipv4_listener =
+        TcpListener::bind((Ipv4Addr::UNSPECIFIED, config!(SERVER_PORT))).await?;
     let ipv6_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, config!(SERVER_PORT))).await.ok();
 
     let mut stop_loop = stop_loop.fuse();
 
     info!("listening for connections on port {}", config!(SERVER_PORT));
 
-    if let Some(ipv6_listener) = ipv6_listener {
+    if let Some(mut ipv6_listener) = ipv6_listener {
         loop {
             select! {
                 res = ipv4_listener.accept().fuse() => register_client(res).await,

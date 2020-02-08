@@ -18,12 +18,6 @@ pub mod db;
 pub mod web_server;
 
 use anyhow::Context;
-use async_std::{
-    io::prelude::*,
-    net::{TcpListener, TcpStream},
-    sync::Mutex,
-    task,
-};
 use client::{Client, Mode, State};
 use config::Config;
 use dashmap::DashMap;
@@ -43,6 +37,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use telex_server::*;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    prelude::*,
+    sync::Mutex,
+    task,
+};
 
 // types
 pub type VoidJoinHandle = task::JoinHandle<()>;
@@ -58,7 +58,7 @@ pub static CONFIG: OnceCell<Config> = OnceCell::new();
 pub static TASKS: Lazy<DashMap<TaskId, ResultJoinHandle>> = Lazy::new(|| DashMap::new());
 pub static TASK_ID_COUNTER: Lazy<Mutex<TaskId>> = Lazy::new(|| Mutex::new(0));
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // simple_logger::init().expect("Failed to initialize logger");
 
@@ -134,7 +134,7 @@ async fn wait_for_task(task_id: usize) -> anyhow::Result<()> {
     debug!("waiting for task {}", task_id);
     let (_, task) = TASKS.remove(&task_id).expect("spawned task is not stored in TASKS");
 
-    task.await
+    task.await?
 }
 
 fn init_logger() -> anyhow::Result<()> {

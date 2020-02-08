@@ -74,7 +74,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             loop {
                 SESSION_STORE.remove_old_sessions();
 
-                task::sleep(config!(WEBSERVER_REMOVE_SESSIONS_INTERVAL)).await;
+                tokio::time::delay_for(config!(WEBSERVER_REMOVE_SESSIONS_INTERVAL)).await;
             }
         });
 

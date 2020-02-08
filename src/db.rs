@@ -2,9 +2,9 @@ use crate::{
     errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Entries, Entry,
     CHANGED, CONFIG, DATABASE,
 };
-use async_std::{fs, io::prelude::*, sync::Mutex};
 use once_cell::sync::Lazy;
 use std::net::Ipv4Addr;
+use tokio::{fs, prelude::*, sync::Mutex};
 
 static FS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -49,9 +49,9 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 }
 
 pub async fn read_db_from_disk() -> anyhow::Result<()> {
-    use async_std::path::Path;
     use fs::File;
     use itelex::Deserialize;
+    use std::path::Path;
 
     info!("Reading entries from disk");
 
@@ -59,7 +59,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
 
     let db_path = Path::new(&config!(DB_PATH));
 
-    if !db_path.exists().await {
+    if !db_path.exists() {
         warn!("The database could not be found on disk. It will be created on the next sync.");
 
         return Ok(());
@@ -82,7 +82,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
         let res = db_file.read_exact(&mut buffer).await;
 
         if let Err(err) = res {
-            if err.kind() == async_std::io::ErrorKind::UnexpectedEof {
+            if err.kind() == tokio::io::ErrorKind::UnexpectedEof {
                 break; // read until there are no byes left in the file
             }
         }

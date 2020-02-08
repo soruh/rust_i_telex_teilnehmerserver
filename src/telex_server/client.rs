@@ -1,10 +1,10 @@
 use super::{FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION};
 use crate::{db::*, errors::ItelexServerErrorKind, Entries, CONFIG};
 use anyhow::Context;
-use async_std::{io::BufReader, net::TcpStream, prelude::*, task};
 use futures::{future::FutureExt, select, stream::StreamExt};
 use itelex::server::*;
 use std::net::{IpAddr, SocketAddr};
+use tokio::{io::BufReader, net::TcpStream, prelude::*};
 
 #[derive(Debug, PartialEq, Eq)]
 
@@ -50,7 +50,7 @@ impl Client {
         #[allow(clippy::mut_mut, clippy::unnecessary_mut_passed)]
         {
             select! {
-                _ = task::sleep(config!(CLIENT_TIMEOUT)).fuse() => {
+                _ = tokio::time::delay_for(config!(CLIENT_TIMEOUT)).fuse() => {
                     bail!(ItelexServerErrorKind::Timeout);
                 }
                 res = self.peek_client_type().fuse() => {
@@ -68,7 +68,7 @@ impl Client {
             {
                 {
                     select! {
-                        _ = task::sleep(config!(CLIENT_TIMEOUT)).fuse() => {
+                        _ = tokio::time::delay_for(config!(CLIENT_TIMEOUT)).fuse() => {
                             Err(ItelexServerErrorKind::Timeout)?;
                         }
                         res = self.consume_package().fuse() => {
@@ -174,7 +174,7 @@ impl Client {
     }
 
     pub async fn consume_package_ascii(self: &mut Self) -> anyhow::Result<()> {
-        let mut lines = BufReader::new(&self.socket).lines();
+        let mut lines = BufReader::new(&mut self.socket).lines();
 
         let line = lines
             .next()
