@@ -604,7 +604,7 @@ dependencies = [
 [[package]]
 name = "itelex"
 version = "0.1.2"
-source = "git+https://github.com/soruh/itelex_rust.git#1766ea4ac41be108d69d1f6f2c00f9772607c342"
+source = "git+https://github.com/soruh/itelex_rust.git#25c5b7c356de6d583e3476b89373fea207b3c193"
 dependencies = [
  "binserde 0.1.1 (git+https://github.com/soruh/binserde)",
  "binserde-derive 0.1.1 (git+https://github.com/soruh/binserde)",

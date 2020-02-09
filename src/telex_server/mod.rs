@@ -112,7 +112,7 @@ async fn handle_client_result(
         let message = format!("fail\r\n-\r\nerror: {}\r\n+++\r\n", error);
 
         if client.mode == Mode::Binary {
-            let _ = client.send_package(Package::Error(Error { message })).await;
+            let _ = client.send_package(Error { message }).await;
         } else if client.mode == Mode::Ascii {
             let _ = client.socket.write_all(message.as_bytes()).await;
         }

@@ -48,12 +48,13 @@ use tokio::{
 pub type VoidJoinHandle = task::JoinHandle<()>;
 pub type ResultJoinHandle = task::JoinHandle<anyhow::Result<()>>;
 pub type TaskId = usize;
-pub type Entry = PeerReply;
-pub type Entries = Vec<Entry>;
+pub type Entry = Box<PeerReply>;
+pub type UnboxedEntry = PeerReply;
+pub type Entries = Vec<PeerReply>;
 
 // global state
 pub static CHANGED: Lazy<DashMap<u32, ()>> = Lazy::new(|| DashMap::new());
-pub static DATABASE: Lazy<DashMap<u32, Entry>> = Lazy::new(|| DashMap::new());
+pub static DATABASE: Lazy<DashMap<u32, UnboxedEntry>> = Lazy::new(|| DashMap::new());
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
 pub static TASKS: Lazy<DashMap<TaskId, ResultJoinHandle>> = Lazy::new(|| DashMap::new());
 pub static TASK_ID_COUNTER: Lazy<Mutex<TaskId>> = Lazy::new(|| Mutex::new(0));

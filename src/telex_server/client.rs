@@ -85,8 +85,13 @@ impl Client {
         Ok(())
     }
 
-    pub async fn send_package(&mut self, package: Package) -> anyhow::Result<()> {
+    pub async fn send_package<P>(&mut self, package: P) -> anyhow::Result<()>
+    where
+        P: Into<Package>,
+    {
         use itelex::Serialize;
+        let package: Package = package.into();
+
         debug!("sending package: {:#?}", package);
 
         let mut package_buffer = Vec::new();
@@ -126,13 +131,13 @@ impl Client {
         }
 
         if let Some(package) = self.send_queue.pop() {
-            if let Err(err) = self.send_package(Package::PeerReply(package.clone())).await {
+            if let Err(err) = self.send_package(package.clone()).await {
                 self.send_queue.push(package);
 
                 return Err(err);
             }
         } else {
-            self.send_package(Package::EndOfList(EndOfList {})).await?;
+            self.send_package(EndOfList {}).await?;
 
             self.shutdown()?; // TODO: check if this is correct (it should be)
         }
@@ -291,8 +296,8 @@ impl Client {
                     _ => bail!(ItelexServerErrorKind::Ipv6Address),
                 };
 
-                update_or_register_entry(package, ipaddress)?;
-                self.send_package(Package::AddressConfirm(AddressConfirm { ipaddress })).await?;
+                update_or_register_entry(*package, ipaddress)?;
+                self.send_package(AddressConfirm { ipaddress }).await?;
 
                 Ok(())
             }
@@ -305,7 +310,7 @@ impl Client {
                 if let Some(entry) = get_public_entry_by_number(package.number) {
                     self.send_package(Package::PeerReply(entry)).await?;
                 } else {
-                    self.send_package(Package::PeerNotFound(PeerNotFound {})).await?;
+                    self.send_package(PeerNotFound {}).await?;
                 }
 
                 Ok(())
@@ -318,7 +323,7 @@ impl Client {
 
                 update_entry_if_newer(package);
 
-                self.send_package(Package::Acknowledge(Acknowledge {})).await?;
+                self.send_package(Acknowledge {}).await?;
 
                 Ok(())
             }
@@ -360,7 +365,7 @@ impl Client {
 
                 self.state = State::Accepting;
 
-                self.send_package(Package::Acknowledge(Acknowledge {})).await?;
+                self.send_package(Acknowledge {}).await?;
 
                 Ok(())
             }

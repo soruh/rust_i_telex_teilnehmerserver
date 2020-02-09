@@ -177,7 +177,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             let current_timestamp = get_current_itelex_timestamp();
             entry.timestamp = current_timestamp; // update the entry's timestamp
             entry.pin = if let Some(mut old_entry) = DATABASE.get_mut(&number) {
-                let mut old_entry: &mut Entry = old_entry.value_mut();
+                let mut old_entry: &mut UnboxedEntry = old_entry.value_mut();
                 if entry.number != number {
                     old_entry.client_type = ClientType::Deleted; // delete the old entry
                     old_entry.timestamp = current_timestamp; // set it's timestamp to `now`

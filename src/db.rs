@@ -51,7 +51,7 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 pub async fn read_db_from_disk() -> anyhow::Result<()> {
     use fs::File;
     use itelex::Deserialize;
-    use std::path::Path;
+    use std::{io::Cursor, path::Path};
 
     info!("Reading entries from disk");
 
@@ -87,7 +87,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
             }
         }
 
-        packages.push(PeerReply::deserialize_le(&mut std::io::Cursor::new(buffer.as_mut()))?);
+        packages.push(PeerReply::deserialize_le(&mut Cursor::new(buffer.as_mut()))?);
     }
 
     if config!(SERVER_PIN) == 0 {
@@ -203,7 +203,7 @@ pub fn update_or_register_entry(package: ClientUpdate, ipaddress: Ipv4Addr) -> a
 pub fn update_entry(entry: Entry) {
     CHANGED.insert(entry.number, ());
 
-    DATABASE.insert(entry.number, entry);
+    DATABASE.insert(entry.number, *entry);
 }
 
 pub fn update_entry_if_newer(entry: Entry) {
@@ -219,7 +219,7 @@ pub fn update_entry_if_newer(entry: Entry) {
         // change the entry we just checked
         CHANGED.insert(entry.number, ());
 
-        DATABASE.insert(entry.number, entry);
+        DATABASE.insert(entry.number, *entry);
     }
 }
 
@@ -236,7 +236,7 @@ fn pattern_matches(words: &[&str], name: &str) -> bool {
 pub fn get_public_entries() -> Entries {
     get_sanitized_entries()
         .into_iter()
-        .filter(|item: &Entry| !(item.disabled() || item.client_type == ClientType::Deleted))
+        .filter(|item: &PeerReply| !(item.disabled() || item.client_type == ClientType::Deleted))
         .collect()
 }
 
@@ -258,13 +258,15 @@ pub fn get_public_entries_by_pattern(pattern: &str) -> Entries {
 }
 
 pub fn get_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.get(&number).map(|item| item.value().clone())
+    DATABASE.get(&number).map(|item| item.value().clone().into())
+    // TODO: .clone_into()
 }
 
 pub fn get_public_entry_by_number(number: u32) -> Option<Entry> {
     match DATABASE.get(&number) {
         Some(entry) => {
-            let mut entry = entry.value().clone();
+            let mut entry: Entry = entry.value().clone().into();
+            // TODO: .clone_into()
             if entry.disabled() || entry.client_type == ClientType::Deleted {
                 dbg!(&entry);
                 return None;

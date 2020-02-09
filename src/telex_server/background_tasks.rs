@@ -96,20 +96,14 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
 
     client.state = State::Accepting;
 
-    let pkg = if config!(SERVER_PIN) == 0 {
+    let pkg: Package = if config!(SERVER_PIN) == 0 {
         warn!(
             "Sending empty peer search instead of full query, because no server pin was specified"
         );
 
-        Package::PeerSearch(PeerSearch {
-            version: PEER_SEARCH_VERSION,
-            pattern: String::from("").into(),
-        })
+        PeerSearch { version: PEER_SEARCH_VERSION, pattern: String::from("").into() }.into()
     } else {
-        Package::FullQuery(FullQuery {
-            version: FULL_QUERY_VERSION,
-            server_pin: config!(SERVER_PIN),
-        })
+        FullQuery { version: FULL_QUERY_VERSION, server_pin: config!(SERVER_PIN) }.into()
     };
 
     client.send_package(pkg).await?;
@@ -166,12 +160,7 @@ async fn update_server_with_packages(server: SocketAddr, packages: Entries) -> a
 
     client.state = State::Responding;
 
-    client
-        .send_package(Package::Login(Login {
-            server_pin: config!(SERVER_PIN),
-            version: LOGIN_VERSION,
-        }))
-        .await?;
+    client.send_package(Login { server_pin: config!(SERVER_PIN), version: LOGIN_VERSION }).await?;
 
     let task_id = start_handling_client(client).await;
 
