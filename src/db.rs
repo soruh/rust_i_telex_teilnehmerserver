@@ -216,6 +216,7 @@ pub fn update_entry(entry: Entry) {
 pub fn update_entry_if_newer(entry: Entry) {
     let do_update = if let Some(existing) = DATABASE.get(&entry.number) {
         entry.timestamp > existing.timestamp
+            || (entry.timestamp == existing.timestamp && existing.pin == 0 && entry.pin != 0)
     } else {
         true
     };
@@ -265,15 +266,14 @@ pub fn get_public_entries_by_pattern(pattern: &str) -> Entries {
 }
 
 pub fn get_entry_by_number(number: u32) -> Option<Entry> {
-    DATABASE.get(&number).map(|item| item.value().clone().into())
-    // TODO: .clone_into()
+    DATABASE.get(&number).map(|item| Box::new(item.value().clone()))
 }
 
 pub fn get_public_entry_by_number(number: u32) -> Option<Entry> {
     match DATABASE.get(&number) {
         Some(entry) => {
-            let mut entry: Entry = entry.value().clone().into();
-            // TODO: .clone_into()
+            let mut entry: Entry = Box::new(entry.value().clone());
+
             if entry.disabled() || entry.client_type == ClientType::Deleted {
                 dbg!(&entry);
                 return None;
