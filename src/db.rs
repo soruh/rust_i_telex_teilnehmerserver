@@ -214,12 +214,7 @@ pub fn update_entry(entry: Entry) {
 
 #[allow(clippy::boxed_local)]
 pub fn update_entry_if_newer(entry: Entry) {
-    let do_update = if let Some(existing) = DATABASE.get(&entry.number) {
-        entry.timestamp > existing.timestamp
-            || (entry.timestamp == existing.timestamp && existing.pin == 0 && entry.pin != 0)
-    } else {
-        true
-    };
+    let do_update = DATABASE.get(&entry.number).map_or(true, |old| old.timestamp < entry.timestamp);
 
     if do_update {
         // NOTE: we duplicate the code from above almost exactly here

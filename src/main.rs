@@ -179,10 +179,7 @@ fn init_logger() -> anyhow::Result<()> {
             default_level
         };
 
-        loggers.push(
-            TermLogger::new(log_level, Config::default(), TerminalMode::Mixed)
-                .context("Failed to create terminal logger")?,
-        );
+        loggers.push(TermLogger::new(log_level, Config::default(), TerminalMode::Mixed));
     }
 
     if let Some(log_file_path) = config!(LOG_FILE_PATH).as_ref() {

@@ -10,12 +10,12 @@
     <title>Teilnehmerliste</title>
   </head>
   <body>
-    <a style="display: none" id="new" href="/static/entry.html">
+    <a style="display: none;" id="new" href="/static/entry.html">
       neuen Eintrag anlegen
     </a>
-    <a style="display: none" id="login" href="/static/login.html">log in</a>
+    <a style="display: none;" id="login" href="/static/login.html">log in</a>
     <button
-      style="display: none"
+      style="display: none;"
       id="logout"
       onclick="logout(() => window.location = '/');"
     >
@@ -41,11 +41,13 @@
           "address",
           "client_type",
           "port",
-          "timestamp"
+          "timestamp",
         ];
         if (is_logged_in) keys.push("disabled");
 
-        buildTable();
+        get_entries((entries) => {
+          buildTable(entries);
+        });
       }
 
       function changeSortingKey(new_sorting_key) {
@@ -101,67 +103,66 @@
         );
       }
 
-      function buildTable() {
+      function buildTable(entries) {
         let table = document.getElementById("table");
-        get_entries(entries => {
-          clearTable();
 
-          if (entries.length == 0) return;
+        clearTable();
 
-          entries = sortEntries(entries);
+        if (entries.length == 0) return;
 
-          if (reverse_entries) entries = entries.reverse();
+        entries = sortEntries(entries);
 
+        if (reverse_entries) entries = entries.reverse();
+
+        let tr = document.createElement("tr");
+        tr.className = "row header-row";
+
+        for (let key of keys) {
+          let th = document.createElement("th");
+          th.innerText = locs.labels[key];
+          th.className = "cell header-cell cell-" + key;
+          th.onclick = () => {
+            changeSortingKey(key);
+            buildTable(entries);
+          };
+          tr.append(th);
+        }
+
+        table.append(tr);
+
+        for (let entry of entries) {
           let tr = document.createElement("tr");
-          tr.className = "row header-row";
+
+          tr.className = "row content-row";
+          tr.onclick = () => {
+            window.location = "/static/entry.html?number=" + entry.number;
+          };
 
           for (let key of keys) {
-            let th = document.createElement("th");
-            th.innerText = locs.labels[key];
-            th.className = "cell header-cell cell-" + key;
-            th.onclick = () => {
-              changeSortingKey(key);
-              buildTable();
-            };
-            tr.append(th);
+            let td = document.createElement("td");
+
+            td.className = "cell content-cell cell-" + key;
+
+            switch (key) {
+              case "address":
+                td.innerText = ~[2, 4, 5].indexOf(entry.client_type)
+                  ? entry.ipaddress
+                  : entry.hostname;
+                break;
+
+              case "extension":
+                td.innerText = stringifyExtension(entry.extension);
+                break;
+
+              default:
+                td.innerText = formatValue(key, entry[key]);
+            }
+
+            tr.append(td);
           }
 
           table.append(tr);
-
-          for (let entry of entries) {
-            let tr = document.createElement("tr");
-
-            tr.className = "row content-row";
-            tr.onclick = () => {
-              window.location = "/static/entry.html?number=" + entry.number;
-            };
-
-            for (let key of keys) {
-              let td = document.createElement("td");
-
-              td.className = "cell content-cell cell-" + key;
-
-              switch (key) {
-                case "address":
-                  td.innerText = ~[2, 4, 5].indexOf(entry.client_type)
-                    ? entry.ipaddress
-                    : entry.hostname;
-                  break;
-
-                case "extension":
-                  td.innerText = stringifyExtension(entry.extension);
-                  break;
-
-                default:
-                  td.innerText = formatValue(key, entry[key]);
-              }
-
-              tr.append(td);
-            }
-
-            table.append(tr);
-          }
-        });
+        }
       }
     </script>
   </body>

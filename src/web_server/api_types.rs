@@ -7,10 +7,10 @@ pub struct LoginRequest {
 pub struct LoggedInResponse(pub bool); // TODO: remove?
 
 #[derive(Debug)]
-pub struct InternalError(pub String);
+pub struct ApiError(pub String);
 
 #[cfg(debug_assertions)]
-impl serde::Serialize for InternalError {
+impl serde::Serialize for ApiError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -20,7 +20,7 @@ impl serde::Serialize for InternalError {
 }
 
 #[cfg(not(debug_assertions))]
-impl serde::Serialize for InternalError {
+impl serde::Serialize for ApiError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

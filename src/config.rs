@@ -1,7 +1,6 @@
 use anyhow::Context;
 use std::{net::SocketAddr, time::Duration};
 
-#[derive(Debug)]
 #[allow(non_snake_case)]
 pub struct Config {
     pub CLIENT_TIMEOUT: Duration,
@@ -22,31 +21,65 @@ pub struct Config {
     pub WEBSERVER_PASSWORD: String,
     pub WEBSERVER_SESSION_LIFETIME: Duration,
     pub WEBSERVER_REMOVE_SESSIONS_INTERVAL: Duration,
+    pub WEBSERVER_SESSION_SECRET: Vec<u8>,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let servers: Vec<String> =
+            self.SERVERS.iter().map(|server| format!("{}", server)).collect();
+
+        #[derive(Debug)]
+        struct Censored;
+
+        f.debug_struct("Config")
+            .field("client timeout", &self.CLIENT_TIMEOUT)
+            .field("server cooldown", &self.SERVER_COOLDOWN)
+            .field("changed sync interval", &self.CHANGED_SYNC_INTERVAL)
+            .field("db sync interval", &self.DB_SYNC_INTERVAL)
+            .field("full query interval", &self.FULL_QUERY_INTERVAL)
+            .field("server port", &self.SERVER_PORT)
+            .field("server pin", &self.SERVER_PIN)
+            .field("db path", &self.DB_PATH)
+            .field("db path temp", &self.DB_PATH_TEMP)
+            .field("servers", &servers)
+            .field("log file path", &self.LOG_FILE_PATH)
+            .field("log level file", &self.LOG_LEVEL_FILE)
+            .field("log level term", &self.LOG_LEVEL_TERM)
+            .field("webserver port", &self.WEBSERVER_PORT)
+            .field("webserver password", &self.WEBSERVER_PASSWORD)
+            .field("webserver session lifetime", &self.WEBSERVER_SESSION_LIFETIME)
+            .field("webserver remove_sessions interval", &self.WEBSERVER_REMOVE_SESSIONS_INTERVAL)
+            .field("webserver session secret", &Censored)
+            .finish()
+    }
 }
 
 macro_rules! get_variable {
     ($name:literal) => {
-        var($name).context(concat!("Failed to parse config variable `", $name, "`"))?
+        var($name).context(format!("Failed to get config variable `{}`", $name))?
     };
 }
 
 macro_rules! parse_duration {
     ($name:literal) => {
-        duration_from_string(get_variable!($name)).context(concat!(
-            "Failed to parse config variable ",
-            $name,
-            " as duration"
-        ))?
+        duration_from_string(get_variable!($name))
+            .context(format!("Failed to parse config variable {} as {}", $name, "duration"))?
     };
 }
 
 macro_rules! parse_from_str {
     ($name:literal) => {
-        get_variable!($name).parse().context(concat!(
-            "Failed to parse config variable ",
-            $name,
-            " as number"
-        ))?
+        get_variable!($name)
+            .parse()
+            .context(format!("Failed to parse config variable {} as {}", $name, "number"))?
+    };
+}
+
+macro_rules! parse_bytes_from_base64_str {
+    ($name:literal) => {
+        base64::decode(get_variable!($name))
+            .context(format!("Failed to parse config variable {} as {}", $name, "base64"))?
     };
 }
 
@@ -67,6 +100,7 @@ impl Config {
             LOG_LEVEL_FILE: var("LOG_LEVEL_FILE").ok(),
             LOG_LEVEL_TERM: var("LOG_LEVEL_TERM").ok(),
             WEBSERVER_PORT: parse_from_str!("WEBSERVER_PORT"),
+            WEBSERVER_SESSION_SECRET: parse_bytes_from_base64_str!("WEBSERVER_SESSION_SECRET"),
             WEBSERVER_PASSWORD: get_variable!("WEBSERVER_PASSWORD"),
             WEBSERVER_SESSION_LIFETIME: parse_duration!("WEBSERVER_SESSION_LIFETIME"),
             WEBSERVER_REMOVE_SESSIONS_INTERVAL: parse_duration!(
