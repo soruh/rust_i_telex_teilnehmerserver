@@ -4,13 +4,14 @@ use std::time::Instant;
 pub struct SessionKeyLocal(pub SessionKey);
 
 pub type SessionKey = u64;
+#[derive(Default)]
 pub struct SessionMiddleware {
     pub sessions: DashMap<SessionKey, Instant>,
 }
 
 impl SessionMiddleware {
     pub fn new() -> Self {
-        Self { sessions: DashMap::new() }
+        Default::default()
     }
 
     pub fn remove_old_sessions(&self) {

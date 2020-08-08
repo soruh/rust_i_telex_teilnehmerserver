@@ -9,7 +9,7 @@ use tokio::{fs, prelude::*, sync::Mutex};
 static FS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub async fn sync_db_to_disk() -> anyhow::Result<()> {
-    use itelex::Serialize;
+    use itelex::PackageBody;
     use std::fs::{copy, remove_file, File};
 
     if config!(SERVER_PIN) == 0 {
@@ -25,7 +25,7 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
     let mut temp_file: File = File::create(&config!(DB_PATH_TEMP))?;
 
     for item in DATABASE.iter() {
-        item.value().serialize_le(&mut temp_file)?;
+        item.value().serialize(&mut temp_file)?;
     }
 
     temp_file.sync_all()?;
@@ -50,7 +50,7 @@ pub async fn sync_db_to_disk() -> anyhow::Result<()> {
 
 pub async fn read_db_from_disk() -> anyhow::Result<()> {
     use fs::File;
-    use itelex::Deserialize;
+    use itelex::Package;
     use std::{io::Cursor, path::Path};
 
     info!("Reading entries from disk");
@@ -74,7 +74,7 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
         bail!(anyhow!("DB file has length that is not a multiple of 100; It may be corrupted!"));
     }
 
-    let mut packages = Vec::new();
+    let mut packages: Vec<PeerReply> = Vec::new();
 
     loop {
         let mut buffer = [0u8; 100];
@@ -87,7 +87,12 @@ pub async fn read_db_from_disk() -> anyhow::Result<()> {
             }
         }
 
-        packages.push(PeerReply::deserialize_le(&mut Cursor::new(buffer.as_mut()))?);
+        packages.push(
+            Package::<Server>::deserialize(&mut Cursor::new(buffer.as_mut()))?
+                .downcast_ref::<PeerReply>()
+                .ok_or_else(|| anyhow!("DB had a broken package"))?
+                .clone(),
+        );
     }
 
     if config!(SERVER_PIN) == 0 {
@@ -200,12 +205,14 @@ pub fn update_or_register_entry(package: ClientUpdate, ipaddress: Ipv4Addr) -> a
     Ok(())
 }
 
+#[allow(clippy::boxed_local)]
 pub fn update_entry(entry: Entry) {
     CHANGED.insert(entry.number, ());
 
     DATABASE.insert(entry.number, *entry);
 }
 
+#[allow(clippy::boxed_local)]
 pub fn update_entry_if_newer(entry: Entry) {
     let do_update = if let Some(existing) = DATABASE.get(&entry.number) {
         entry.timestamp > existing.timestamp

@@ -2,7 +2,7 @@ use super::{FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION};
 use crate::{db::*, errors::ItelexServerErrorKind, Entries, CONFIG};
 use anyhow::Context;
 use futures::{future::FutureExt, select, stream::StreamExt};
-use itelex::server::*;
+use itelex::{server::*, Package};
 use std::net::{IpAddr, SocketAddr};
 use tokio::{io::BufReader, net::TcpStream, prelude::*};
 
@@ -87,17 +87,16 @@ impl Client {
 
     pub async fn send_package<P>(&mut self, package: P) -> anyhow::Result<()>
     where
-        P: Into<Package>,
+        P: Into<Package<Server>> + Send,
     {
-        use itelex::Serialize;
-        let package: Package = package.into();
+        let package: Package<Server> = package.into();
 
         debug!("sending package: {:#?}", package);
 
         let mut package_buffer = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut package_buffer);
 
-        package.serialize_le(&mut cursor)?;
+        package.serialize(&mut cursor)?;
 
         debug!("sending package buffer: {:?}", package_buffer);
 
@@ -251,11 +250,10 @@ impl Client {
     }
 
     pub async fn consume_package_binary(self: &mut Self) -> anyhow::Result<()> {
-        use itelex::Deserialize;
         let mut header = [0_u8; 2];
 
         self.socket
-            .read_exact(&mut header)
+            .peek(&mut header)
             .await
             .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
@@ -271,7 +269,7 @@ impl Client {
             .await
             .context(ItelexServerErrorKind::ConnectionCloseUnexpected)?;
 
-        let package = Package::deserialize_le(&mut std::io::Cursor::new(buffer))?;
+        let package = Package::<Server>::deserialize(&mut std::io::Cursor::new(buffer))?;
 
         debug!("received package: {:#?}", package);
 
@@ -280,11 +278,12 @@ impl Client {
         Ok(())
     }
 
-    pub async fn handle_package(self: &mut Self, package: Package) -> anyhow::Result<()> {
+    pub async fn handle_package(self: &mut Self, package: Package<Server>) -> anyhow::Result<()> {
         debug!("state: '{:?}'", self.state);
 
-        match package {
-            Package::ClientUpdate(package) => {
+        match package.package_type() {
+            Server::ClientUpdate => {
+                let package = package.downcast::<ClientUpdate>().unwrap();
                 if self.state != State::Idle {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
@@ -301,22 +300,27 @@ impl Client {
 
                 Ok(())
             }
-            // Package::AddressConfirm(package) => {}
-            Package::PeerQuery(package) => {
+            // Server::AddressConfirm => { let package =
+            // package.downcast::<AddressConfirm>().unwrap(); }
+            Server::PeerQuery => {
+                let package = package.downcast::<PeerQuery>().unwrap();
+
                 if self.state != State::Idle {
                     bail!(ItelexServerErrorKind::InvalidState(State::Idle, self.state));
                 }
 
                 if let Some(entry) = get_public_entry_by_number(package.number) {
-                    self.send_package(Package::PeerReply(entry)).await?;
+                    self.send_package(entry).await?;
                 } else {
                     self.send_package(PeerNotFound {}).await?;
                 }
 
                 Ok(())
             }
-            // Package::PeerNotFound(_package) => {}
-            Package::PeerReply(package) => {
+            // Server::PeerNotFound => { let package = package.downcast::<PeerNotFound>().unwrap();
+            // }
+            Server::PeerReply => {
+                let package = package.downcast::<PeerReply>().unwrap();
                 if self.state != State::Accepting {
                     bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
@@ -327,7 +331,8 @@ impl Client {
 
                 Ok(())
             }
-            Package::FullQuery(package) => {
+            Server::FullQuery => {
+                let package = package.downcast::<FullQuery>().unwrap();
                 if package.version != FULL_QUERY_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -348,7 +353,8 @@ impl Client {
 
                 Ok(())
             }
-            Package::Login(package) => {
+            Server::Login => {
+                let package = package.downcast::<Login>().unwrap();
                 if package.version != LOGIN_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -369,7 +375,8 @@ impl Client {
 
                 Ok(())
             }
-            Package::Acknowledge(_package) => {
+            Server::Acknowledge => {
+                // let package = package.downcast::<Acknowledge>().unwrap();
                 if self.state != State::Responding {
                     bail!(ItelexServerErrorKind::InvalidState(State::Responding, self.state));
                 }
@@ -378,7 +385,8 @@ impl Client {
 
                 Ok(())
             }
-            Package::EndOfList(_package) => {
+            Server::EndOfList => {
+                // let package = package.downcast::<EndOfList>().unwrap();
                 if self.state != State::Accepting {
                     bail!(ItelexServerErrorKind::InvalidState(State::Accepting, self.state));
                 }
@@ -387,7 +395,8 @@ impl Client {
 
                 Ok(())
             }
-            Package::PeerSearch(package) => {
+            Server::PeerSearch => {
+                let package = package.downcast::<PeerSearch>().unwrap();
                 if package.version != PEER_SEARCH_VERSION {
                     bail!(ItelexServerErrorKind::UserInputError);
                 }
@@ -406,7 +415,10 @@ impl Client {
 
                 Ok(())
             }
-            Package::Error(package) => Err(anyhow!("remote error: {:?}", package.message)),
+            Server::Error => {
+                let package = package.downcast::<Error>().unwrap();
+                Err(anyhow!("remote error: {:?}", package.message))
+            }
 
             _ => Err(ItelexServerErrorKind::UserInputError.into()),
         }

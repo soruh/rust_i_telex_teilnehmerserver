@@ -23,7 +23,7 @@ serde_json = "1.0"
 dashmap = "3.4.3"
 cookie = "0.13"
 rand = "0.7"
-itelex = { version="0.1", features = ["server", "serde_deserialize", "serde_serialize"], git = "https://github.com/soruh/itelex_rust.git" }
+itelex = { version = "0.3", features = ["server", "serde_deserialize", "serde_serialize"], git = "https://github.com/soruh/itelex_rust.git" }
 
 
 

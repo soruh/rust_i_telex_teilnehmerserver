@@ -100,10 +100,8 @@ async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
 
         if let Some(addr) = ipv4 {
             servers.push(*addr);
-        } else {
-            if !socket_addrs.is_empty() {
-                servers.push(socket_addrs.remove(0));
-            }
+        } else if !socket_addrs.is_empty() {
+            servers.push(socket_addrs.remove(0));
         }
     }
 

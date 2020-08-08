@@ -96,7 +96,7 @@ async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
 
     client.state = State::Accepting;
 
-    let pkg: Package = if config!(SERVER_PIN) == 0 {
+    let pkg: Package<Server> = if config!(SERVER_PIN) == 0 {
         warn!(
             "Sending empty peer search instead of full query, because no server pin was specified"
         );

@@ -1,3 +1,5 @@
+#![allow(clippy::nonminimal_bool)] // !logged_in!()
+
 mod api_types;
 mod cookie_parser;
 mod session;
@@ -59,7 +61,7 @@ macro_rules! static_route {
 }
 
 pub static SESSION_STORE: Lazy<session::SessionMiddleware> =
-    Lazy::new(|| session::SessionMiddleware::new());
+    Lazy::new(session::SessionMiddleware::new);
 
 pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
     task::spawn(async move {
@@ -120,16 +122,15 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             };
 
             {
-                use itelex::Serialize;
                 // confirm entry format
-                if let Err(err) = entry.clone().serialize_le(&mut Vec::new()) {
+                if let Err(err) = entry.serialize(&mut Vec::new()) {
                     return error!(format!("Entry has invalid format: {:?}", err));
                 }
             }
 
             if let Some(target) = DATABASE.get(&entry.number) {
                 if !(target.client_type == ClientType::Deleted || target.disabled()) {
-                    return error!(format!("Refused to overwrite existing entry"));
+                    return error!("Refused to overwrite existing entry");
                 }
             }
 
@@ -159,9 +160,8 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             };
 
             {
-                use itelex::Serialize;
                 // confirm entry format
-                if let Err(err) = entry.clone().serialize_le(&mut Vec::new()) {
+                if let Err(err) = entry.serialize(&mut Vec::new()) {
                     return error!(format!("Entry has invalid format: {:?}", err));
                 }
             }
@@ -169,7 +169,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             if entry.number != number {
                 if let Some(target) = DATABASE.get(&entry.number) {
                     if !(target.client_type == ClientType::Deleted || target.disabled()) {
-                        return error!(format!("Refused to overwrite existing target entry"));
+                        return error!("Refused to overwrite existing target entry");
                     }
                 }
             }
@@ -217,7 +217,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
             let result =
                 if logged_in!(req) { get_sanitized_entries() } else { get_public_entries() };
 
-            ok!().body_json(&result).unwrap_or(error!("failed to serialize result"))
+            ok!().body_json(&result).unwrap_or_else(|_| error!("failed to serialize result"))
         });
 
         api.at("/logout").get(|req: Request<()>| async move {
@@ -261,7 +261,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
                 };
 
                 res.body_json(&LoggedInResponse(success))
-                    .unwrap_or(error!("Failed to serialize response"))
+                    .unwrap_or_else(|_| error!("Failed to serialize response"))
             } else {
                 error!("Failed to deserialize request")
             }
@@ -272,7 +272,7 @@ pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
 
             ok!()
                 .body_json(&LoggedInResponse(logged_in))
-                .unwrap_or(error!("Failed to serialize response"))
+                .unwrap_or_else(|_| error!("Failed to serialize response"))
         });
 
         api.at("/localizations/:language").get(|req: Request<()>| async move {

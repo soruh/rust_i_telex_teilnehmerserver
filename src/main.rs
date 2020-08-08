@@ -29,7 +29,10 @@ use futures::{
     sink::SinkExt,
     stream::StreamExt,
 };
-pub use itelex::server::{self as packages, *};
+pub use itelex::{
+    server::{self as packages, *},
+    Package, PackageBody,
+};
 use once_cell::sync::{Lazy, OnceCell};
 use std::{
     cell::RefCell,
@@ -53,10 +56,10 @@ pub type UnboxedEntry = PeerReply;
 pub type Entries = Vec<PeerReply>;
 
 // global state
-pub static CHANGED: Lazy<DashMap<u32, ()>> = Lazy::new(|| DashMap::new());
-pub static DATABASE: Lazy<DashMap<u32, UnboxedEntry>> = Lazy::new(|| DashMap::new());
+pub static CHANGED: Lazy<DashMap<u32, ()>> = Lazy::new(DashMap::new);
+pub static DATABASE: Lazy<DashMap<u32, UnboxedEntry>> = Lazy::new(DashMap::new);
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
-pub static TASKS: Lazy<DashMap<TaskId, ResultJoinHandle>> = Lazy::new(|| DashMap::new());
+pub static TASKS: Lazy<DashMap<TaskId, ResultJoinHandle>> = Lazy::new(DashMap::new);
 pub static TASK_ID_COUNTER: Lazy<Mutex<TaskId>> = Lazy::new(|| Mutex::new(0));
 
 #[tokio::main]
@@ -110,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
 
     // TODO: convert to `drain` once dashmap supports it
     let mut tasks: Vec<ResultJoinHandle> = Vec::with_capacity(TASKS.len());
-    let task_ids: Vec<TaskId> = TASKS.iter().map(|item| item.key().clone()).collect();
+    let task_ids: Vec<TaskId> = TASKS.iter().map(|item| *item.key()).collect();
     for task_id in task_ids {
         if let Some(task) = TASKS.remove(&task_id) {
             tasks.push(task.1);
