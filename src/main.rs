@@ -1,5 +1,4 @@
 #![recursion_limit = "512"]
-#![feature(untagged_unions)]
 #![warn(clippy::all, clippy::nursery)]
 
 #[macro_use] extern crate anyhow;
@@ -82,7 +81,8 @@ async fn main() -> anyhow::Result<()> {
 
     debug!("using config: {:#?}", CONFIG.get().unwrap());
 
-    let db = Database::at(format!("{}_new.d", config!(DB_PATH))).expect("Failed to open database");
+    let db = Database::at(format!(rocket_contrib::crate_relative!("{}_new.d"), config!(DB_PATH)))
+        .expect("Failed to open database");
 
     if let Err(err) = read_db_from_disk().await {
         let err = err.context("Failed to restore DB from disk");

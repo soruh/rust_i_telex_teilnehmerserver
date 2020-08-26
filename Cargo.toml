@@ -34,6 +34,5 @@ rocket_contrib = { version = "0.5.0-dev", features = ["handlebars_templates"], g
 maplit = "1.0.2"
 
 
-
 [profile.release]
 lto = true
