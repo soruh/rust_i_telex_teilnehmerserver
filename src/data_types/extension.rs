@@ -9,7 +9,7 @@ impl std::fmt::Debug for Extension {
 
 impl std::fmt::Display for Extension {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        todo!("Implement Extension encoding")
     }
 }
 
@@ -17,6 +17,6 @@ impl std::str::FromStr for Extension {
     type Err = ();
 
     fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        todo!("Implement Extension encoding")
     }
 }
