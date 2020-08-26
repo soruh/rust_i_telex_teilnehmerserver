@@ -15,6 +15,37 @@ where
     V: From<sled::IVec> + Into<sled::IVec>,
     &'value V: Into<sled::IVec> + 'value,
 {
+    pub fn all(self) -> anyhow::Result<Vec<(K, V)>> {
+        let mut unwraped = Vec::new();
+        for value in self {
+            unwraped.push(value?);
+        }
+        Ok(unwraped)
+    }
+
+    pub fn all_keys(self) -> anyhow::Result<Vec<K>> {
+        let mut unwraped = Vec::new();
+        for value in self.keys() {
+            unwraped.push(value?);
+        }
+        Ok(unwraped)
+    }
+
+    pub fn all_values(self) -> anyhow::Result<Vec<V>> {
+        let mut unwraped = Vec::new();
+        for value in self.values() {
+            unwraped.push(value?);
+        }
+        Ok(unwraped)
+    }
+}
+
+impl<'value, K, V> Iter<K, V>
+where
+    K: AsRef<[u8]> + From<sled::IVec>,
+    V: From<sled::IVec> + Into<sled::IVec>,
+    &'value V: Into<sled::IVec> + 'value,
+{
     pub fn keys(self) -> impl DoubleEndedIterator<Item = anyhow::Result<K>> {
         self.map(|r| r.map(|(k, _v)| k))
     }

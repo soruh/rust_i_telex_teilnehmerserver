@@ -43,13 +43,13 @@ pub struct Machine {
 #[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for Machine {
     fn from(value: sled::IVec) -> Self {
-        rmp_serde::from_read_ref(&value).unwrap()
+        rmp_serde::from_read_ref(&value).expect("Failed to deserialize machine database")
     }
 }
 
 impl Into<sled::IVec> for &Machine {
     fn into(self) -> sled::IVec {
-        rmp_serde::to_vec(self).unwrap().into()
+        rmp_serde::to_vec(self).expect("Failed to serialize machine database").into()
     }
 }
 

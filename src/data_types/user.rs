@@ -1,3 +1,5 @@
+// use super::*;
+
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct UserId(uuid::Uuid);
 
@@ -23,6 +25,7 @@ impl From<sled::IVec> for UserId {
         uuid::Uuid::from_slice(id.as_ref()).expect("Key had too few bytes").into()
     }
 }
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct User {
     pub id: UserId,
@@ -38,13 +41,13 @@ pub struct User {
 #[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for User {
     fn from(value: sled::IVec) -> Self {
-        rmp_serde::from_read_ref(&value).unwrap()
+        rmp_serde::from_read_ref(&value).expect("Failed to deserialize user database")
     }
 }
 
 impl Into<sled::IVec> for &User {
     fn into(self) -> sled::IVec {
-        rmp_serde::to_vec(self).unwrap().into()
+        rmp_serde::to_vec(self).expect("Failed to serialize user database").into()
     }
 }
 

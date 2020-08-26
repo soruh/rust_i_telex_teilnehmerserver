@@ -33,6 +33,8 @@ impl Database {
     }
 }
 
+impl Database {}
+
 #[cfg(test)]
 static TEST_DB: once_cell::sync::Lazy<Database> =
     once_cell::sync::Lazy::new(|| Database::at("./target/temp/test_db").unwrap());

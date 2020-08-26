@@ -1,11 +1,12 @@
 use crate::database::Database;
 use fehler::throws;
 use maplit::hashmap;
-use rocket::{response::Redirect, *};
+use rocket::{http::Status, response::Redirect, *};
 use rocket_contrib::{
     serve::StaticFiles,
     templates::{handlebars, Template},
 };
+
 use tokio::task;
 
 #[macro_use]
@@ -18,6 +19,25 @@ mod misc;
 use ui::*;
 // use api::*;
 use misc::*;
+
+trait LogAndReturnError<T> {
+    fn log_and_return_error(self) -> Result<T, Status>
+    where
+        Self: Sized;
+}
+
+impl<T> LogAndReturnError<T> for anyhow::Result<T> {
+    fn log_and_return_error(self) -> Result<T, Status>
+    where
+        Self: Sized,
+    {
+        // TODO: return error mesage in debug env
+        self.map_err(|err| {
+            error!("client had error: {}", err);
+            Status::new(500, "Internal Server Error")
+        })
+    }
+}
 
 #[throws(anyhow::Error)]
 pub async fn init(db: Database, stopped: futures::channel::oneshot::Receiver<()>) {

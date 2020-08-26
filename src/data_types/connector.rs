@@ -25,6 +25,7 @@ impl From<sled::IVec> for ConnectorId {
         uuid::Uuid::from_slice(id.as_ref()).expect("Key had too few bytes").into()
     }
 }
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Connector {
     pub id: ConnectorId,
@@ -40,13 +41,13 @@ pub struct Connector {
 #[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for Connector {
     fn from(value: sled::IVec) -> Self {
-        rmp_serde::from_read_ref(&value).unwrap()
+        rmp_serde::from_read_ref(&value).expect("Failed to deserialize connector database")
     }
 }
 
 impl Into<sled::IVec> for &Connector {
     fn into(self) -> sled::IVec {
-        rmp_serde::to_vec(self).unwrap().into()
+        rmp_serde::to_vec(self).expect("Failed to serialize connector database").into()
     }
 }
 impl Into<sled::IVec> for Connector {
