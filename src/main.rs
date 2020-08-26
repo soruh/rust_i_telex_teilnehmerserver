@@ -1,3 +1,4 @@
+#![feature(untagged_unions)]
 #![warn(clippy::all, clippy::nursery)]
 #![allow(clippy::unnecessary_mut_passed)] // TODO: remove
 
@@ -12,13 +13,16 @@ macro_rules! config {
 }
 
 #[macro_use]
-pub mod telex_server;
+pub mod compat;
 pub mod config;
+pub mod data_types;
+pub mod database;
 pub mod db;
 pub mod web_server;
 
 use anyhow::Context;
 use client::{Client, Mode, State};
+use compat::*;
 use config::Config;
 use dashmap::DashMap;
 use db::*;
@@ -39,7 +43,6 @@ use std::{
     net::SocketAddr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use telex_server::*;
 use tokio::{
     net::{TcpListener, TcpStream},
     prelude::*,
@@ -95,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         async {
-            if let Err(err) = telex_server::init(stopped_itelex_server).await {
+            if let Err(err) = compat::init(stopped_itelex_server).await {
                 error!("{:?}", anyhow!(err).context("itelex server failed"));
             }
         },

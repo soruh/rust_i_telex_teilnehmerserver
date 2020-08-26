@@ -25,7 +25,8 @@ cookie = "0.14.2"
 rand = "0.7.3"
 itelex = { version = "0.3", features = ["server", "serde_deserialize", "serde_serialize"], git = "https://github.com/soruh/itelex_rust.git" }
 base64 = "0.12.3"
-
+uuid = { version = "0.8.1", features = ["serde"] }
+sled = "0.34.3"
 
 
 [profile.release]
