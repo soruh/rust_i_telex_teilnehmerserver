@@ -3,6 +3,8 @@ pub mod errors;
 pub mod background_tasks;
 pub mod client;
 
+use crate::database::Database;
+
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;
 const LOGIN_VERSION: u8 = 1;
@@ -19,7 +21,7 @@ pub fn get_current_itelex_timestamp() -> u32 {
 use super::*;
 use background_tasks::start_background_tasks;
 
-pub fn init(stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
+pub fn init(_db: Database, stop_server: oneshot::Receiver<()>) -> ResultJoinHandle {
     task::spawn(
         // #[allow(unreachable_code)] // TODO
         async move {

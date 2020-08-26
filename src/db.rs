@@ -1,6 +1,6 @@
 use crate::{
     errors::ItelexServerErrorKind, get_current_itelex_timestamp, packages::*, Entries, Entry,
-    CHANGED, CONFIG, DATABASE,
+    CHANGED, DATABASE,
 };
 use once_cell::sync::Lazy;
 use std::net::Ipv4Addr;

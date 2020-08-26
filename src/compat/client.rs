@@ -1,5 +1,5 @@
 use super::{FULL_QUERY_VERSION, LOGIN_VERSION, PEER_SEARCH_VERSION};
-use crate::{db::*, errors::ItelexServerErrorKind, Entries, CONFIG};
+use crate::{db::*, errors::ItelexServerErrorKind, Entries};
 use anyhow::Context;
 use futures::{future::FutureExt, select, stream::StreamExt};
 use itelex::{server::*, Package};

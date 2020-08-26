@@ -16,9 +16,9 @@ simple-signal = "1.1.1"
 log = { version = "0.4.11", features = ["release_max_level_info"] }
 dotenv = "0.15.0"
 simplelog = "0.8.0"
-tide = "0.13.0"
-mime = "0.3.16"
-serde = { version = "1.0.114", features = ["derive"] }
+# tide = "0.13.0"
+# mime = "0.3.16"
+serde = { version = "1.0.115", features = ["derive"] }
 serde_json = "1.0.57"
 dashmap = "3.11.10"
 cookie = "0.14.2"
@@ -29,6 +29,10 @@ uuid = { version = "0.8.1", features = ["serde", "v4"] }
 sled = "0.34.3"
 fehler = "1.0.0"
 rmp-serde = "0.14.4"
+rocket = { version = "0.5.0-dev", features = ["tls"], git="https://github.com/SergioBenitez/Rocket" }
+rocket_contrib = { version = "0.5.0-dev", features = ["handlebars_templates"], git="https://github.com/SergioBenitez/Rocket" }
+maplit = "1.0.2"
+
 
 
 [profile.release]

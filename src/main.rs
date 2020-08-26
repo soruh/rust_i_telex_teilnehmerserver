@@ -1,6 +1,6 @@
+#![recursion_limit = "512"]
 #![feature(untagged_unions)]
 #![warn(clippy::all, clippy::nursery)]
-#![allow(clippy::unnecessary_mut_passed)] // TODO: remove
 
 #[macro_use] extern crate anyhow;
 #[macro_use] extern crate log;
@@ -8,7 +8,7 @@ extern crate serde;
 
 macro_rules! config {
     ($key:ident) => {
-        CONFIG.get().unwrap().$key
+        crate::CONFIG.get().unwrap().$key
     };
 }
 
@@ -25,6 +25,7 @@ use client::{Client, Mode, State};
 use compat::*;
 use config::Config;
 use dashmap::DashMap;
+use database::Database;
 use db::*;
 use futures::{
     channel::{mpsc, oneshot},
@@ -81,6 +82,8 @@ async fn main() -> anyhow::Result<()> {
 
     debug!("using config: {:#?}", CONFIG.get().unwrap());
 
+    let db = Database::at(format!("{}_new.d", config!(DB_PATH))).expect("Failed to open database");
+
     if let Err(err) = read_db_from_disk().await {
         let err = err.context("Failed to restore DB from disk");
         error!("{:?}", err);
@@ -93,14 +96,21 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = futures::join! {
         async {
-            if let Err(err) = web_server::init(stopped_web_server).await {
+            if let Err(err) = web_server::init(db.clone(), stopped_web_server).await {
                 error!("{:?}", anyhow!(err).context("web server failed"));
+                // TODO: what do we do now?
             }
         },
         async {
-            if let Err(err) = compat::init(stopped_itelex_server).await {
+            warn!("not starting compat server");
+            stopped_itelex_server.await.unwrap();
+            info!("compat server wasn't running");
+            /*
+            if let Err(err) = compat::init(db.clone(), stopped_itelex_server).await {
                 error!("{:?}", anyhow!(err).context("itelex server failed"));
+                // TODO: what do we do now?
             }
+            */
         },
         async {
             if let Err(err) = register_exit_handler().await {
