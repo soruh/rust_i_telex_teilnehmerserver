@@ -40,6 +40,7 @@ pub struct Machine {
     pub timestamp: u64,
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for Machine {
     fn from(value: sled::IVec) -> Self {
         rmp_serde::from_read_ref(&value).unwrap()

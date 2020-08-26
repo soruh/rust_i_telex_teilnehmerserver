@@ -144,7 +144,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn peek_client_type(self: &mut Self) -> anyhow::Result<()> {
+    pub async fn peek_client_type(&mut self) -> anyhow::Result<()> {
         assert_eq!(self.mode, Mode::Unknown);
 
         let mut buf = [0_u8; 1];
@@ -167,7 +167,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn consume_package(self: &mut Self) -> anyhow::Result<()> {
+    pub async fn consume_package(&mut self) -> anyhow::Result<()> {
         assert_ne!(self.mode, Mode::Unknown);
 
         if self.mode == Mode::Binary {
@@ -177,7 +177,7 @@ impl Client {
         }
     }
 
-    pub async fn consume_package_ascii(self: &mut Self) -> anyhow::Result<()> {
+    pub async fn consume_package_ascii(&mut self) -> anyhow::Result<()> {
         let mut lines = BufReader::new(&mut self.socket).lines();
 
         let line = lines
@@ -249,7 +249,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn consume_package_binary(self: &mut Self) -> anyhow::Result<()> {
+    pub async fn consume_package_binary(&mut self) -> anyhow::Result<()> {
         let mut header = [0_u8; 2];
 
         self.socket
@@ -278,7 +278,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn handle_package(self: &mut Self, package: Package<Server>) -> anyhow::Result<()> {
+    pub async fn handle_package(&mut self, package: Package<Server>) -> anyhow::Result<()> {
         debug!("state: '{:?}'", self.state);
 
         match package.package_type() {

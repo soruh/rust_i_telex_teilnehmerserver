@@ -37,6 +37,7 @@ pub struct Connector {
     pub pin: u32,
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for Connector {
     fn from(value: sled::IVec) -> Self {
         rmp_serde::from_read_ref(&value).unwrap()

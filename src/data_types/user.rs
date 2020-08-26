@@ -35,6 +35,7 @@ pub struct User {
     pub password: String,
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<sled::IVec> for User {
     fn from(value: sled::IVec) -> Self {
         rmp_serde::from_read_ref(&value).unwrap()

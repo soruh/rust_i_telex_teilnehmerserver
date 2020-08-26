@@ -8,7 +8,7 @@ impl std::fmt::Debug for Extension {
 }
 
 impl std::fmt::Display for Extension {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
@@ -16,7 +16,7 @@ impl std::fmt::Display for Extension {
 impl std::str::FromStr for Extension {
     type Err = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(_s: &str) -> Result<Self, Self::Err> {
         todo!()
     }
 }
