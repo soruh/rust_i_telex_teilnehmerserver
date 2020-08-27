@@ -87,11 +87,11 @@ async fn main() -> anyhow::Result<()> {
 
     use data_types::*;
 
-    let id = uuid::Uuid::new_v4().into();
-    let users = db.users().unwrap();
-    users
-        .insert(id, &User {
-            id,
+    let user_id = uuid::Uuid::new_v4().into();
+    db.users()
+        .unwrap()
+        .insert(user_id, &User {
+            id: user_id,
             name: "Test User".into(),
             email: None,
             city: None,
@@ -104,9 +104,60 @@ async fn main() -> anyhow::Result<()> {
         })
         .unwrap();
 
-    dbg!(users.len());
-    dbg!(users.get(id).unwrap().unwrap());
-    users.flush().unwrap();
+    use rand::Rng;
+
+    let connector_id = uuid::Uuid::new_v4().into();
+    db.connectors()
+        .unwrap()
+        .insert(connector_id, &Connector {
+            id: connector_id,
+            name: "Test Connector".into(),
+            address: "192.168.0.1".into(),
+            port: rand::random(),
+            owner: db
+                .users()
+                .unwrap()
+                .iter()
+                .keys()
+                .nth(rand::rngs::OsRng::default().gen_range(0, db.users().unwrap().len()))
+                .unwrap()
+                .unwrap(),
+
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+
+            pin: rand::random(),
+        })
+        .unwrap();
+
+    let machine_id = uuid::Uuid::new_v4().into();
+    db.machines()
+        .unwrap()
+        .insert(machine_id, &Machine {
+            id: machine_id,
+            name: "Keller".into(),
+            connector: db
+                .connectors()
+                .unwrap()
+                .iter()
+                .keys()
+                .nth(rand::rngs::OsRng::default().gen_range(0, db.connectors().unwrap().len()))
+                .unwrap()
+                .unwrap(),
+
+            extension: Extension(0),
+            model: "T1000".into(),
+            compat_name_overwrite: None,
+            number: rand::random(),
+
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
+        .unwrap();
 
     if let Err(err) = read_db_from_disk().await {
         let err = err.context("Failed to restore DB from disk");

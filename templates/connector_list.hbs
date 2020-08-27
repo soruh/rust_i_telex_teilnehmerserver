@@ -1,0 +1,25 @@
+<section id="connector_list">
+    <table>
+        <tr>
+            <td>{{locl "name"}}</td>
+            <td>{{locl "address"}}</td>
+            <td>{{locl "port"}}</td>
+            <td>{{locl "timestamp"}}</td>
+            {{#if ../show_owner}}
+            <td>{{locl "owner"}}</td>
+            {{/if}}
+        </tr>
+
+        {{#each connectors}}
+        <tr onclick="if(!event.target.onclick) window.location='/connector/{{this.id}}'">
+            <td>{{this.name}}</td>
+            <td>{{this.address}}</td>
+            <td>{{this.port}}</td>
+            <td>{{this.timestamp}}</td>
+            {{#if ../show_owner}}
+            <td onclick="window.location='/user/{{this.owner}}'">{{user_name this.owner}}</td>
+            {{/if}}
+        </tr>
+        {{/each}}
+        <table>
+</section>

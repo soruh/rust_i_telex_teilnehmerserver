@@ -1,0 +1,27 @@
+{{#*inline "content"}}
+
+<section id="user_list">
+  <table>
+    <tr>
+      <td>{{locl "name"}}</td>
+      <td>{{locl "email"}}</td>
+      <td>{{locl "city"}}</td>
+      <td>{{locl "coordinates"}}</td>
+      <td>{{locl "timestamp"}}</td>
+    </tr>
+    {{#each users}}
+
+    <tr onclick="window.location='/user/{{this.id}}'">
+      <td>{{this.name}}</td>
+      <td>{{this.email}}</td>
+      <td>{{this.city}}</td>
+      <td>{{this.coordinates}}</td>
+      <td>{{this.timestamp}}</td>
+    </tr>
+    {{/each}}
+    <table>
+</section>
+
+
+{{/inline}}
+{{~> (page.parent)~}}

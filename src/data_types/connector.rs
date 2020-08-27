@@ -3,6 +3,15 @@ use super::*;
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct ConnectorId(uuid::Uuid);
 
+impl<'a> rocket::request::FromParam<'a> for ConnectorId {
+    type Error = uuid::Error;
+
+    #[fehler::throws(Self::Error)]
+    fn from_param(param: &'a rocket::http::RawStr) -> Self {
+        Self(param.parse()?)
+    }
+}
+
 impl std::fmt::Debug for ConnectorId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ConnectorId({})", self.0)
@@ -29,6 +38,7 @@ impl From<sled::IVec> for ConnectorId {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Connector {
     pub id: ConnectorId,
+    pub name: String,
     pub address: String,
     pub port: u32,
     pub timestamp: u64,

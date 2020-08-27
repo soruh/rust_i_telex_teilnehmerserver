@@ -3,6 +3,15 @@
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct UserId(uuid::Uuid);
 
+impl<'a> rocket::request::FromParam<'a> for UserId {
+    type Error = uuid::Error;
+
+    #[fehler::throws(Self::Error)]
+    fn from_param(param: &'a rocket::http::RawStr) -> Self {
+        Self(param.parse()?)
+    }
+}
+
 impl std::fmt::Debug for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "UserId({})", self.0)

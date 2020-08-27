@@ -1,0 +1,27 @@
+{{#*inline "content"}}
+<section id="user_list">
+  <h3>{{user.name}}</h3>
+
+  <table>
+    <tr>
+      <td>{{locl "name"}}</td>
+      <td>{{locl "email"}}</td>
+      <td>{{locl "city"}}</td>
+      <td>{{locl "coordinates"}}</td>
+      <td>{{locl "timestamp"}}</td>
+    </tr>
+
+    <tr>
+      <td>{{user.name}}</td>
+      <td>{{user.email}}</td>
+      <td>{{user.city}}</td>
+      <td>{{user.coordinates}}</td>
+      <td>{{user.timestamp}}</td>
+    </tr>
+    <table>
+</section>
+<hr>
+</hr>
+{{> connector_list connector_data}}
+{{/inline}}
+{{> (page.parent) }}

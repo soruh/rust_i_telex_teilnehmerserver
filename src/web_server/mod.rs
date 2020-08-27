@@ -20,14 +20,14 @@ use ui::*;
 // use api::*;
 use misc::*;
 
-trait LogAndReturnError<T> {
-    fn log_and_return_error(self) -> Result<T, Status>
+trait ErrToStatus<T> {
+    fn err_to_status(self) -> Result<T, Status>
     where
         Self: Sized;
 }
 
-impl<T> LogAndReturnError<T> for anyhow::Result<T> {
-    fn log_and_return_error(self) -> Result<T, Status>
+impl<T> ErrToStatus<T> for anyhow::Result<T> {
+    fn err_to_status(self) -> Result<T, Status>
     where
         Self: Sized,
     {
@@ -47,7 +47,9 @@ pub async fn init(db: Database, stopped: futures::channel::oneshot::Receiver<()>
         .mount("/api", api_routes!())
         .mount("/static", StaticFiles::from("./static"))
         .register(catchers![not_found])
-        .attach(template_engine!());
+        .attach(Template::custom(|engines| {
+            misc::setup_handlebars(&mut engines.handlebars);
+        }));
 
     let shutdown_handle = rocket.shutdown();
     task::spawn(async {

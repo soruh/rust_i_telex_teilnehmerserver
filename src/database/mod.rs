@@ -56,6 +56,7 @@ fn test_basic_tree_operations() {
         owner: uuid::Uuid::nil().into(),
 
         pin: 1234,
+        name: "Test Connector".into(),
     };
 
     assert!(connectors.insert(id, &connector).unwrap().is_none());

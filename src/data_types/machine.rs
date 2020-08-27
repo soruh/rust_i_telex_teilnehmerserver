@@ -3,6 +3,15 @@ use super::*;
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct MachineId(uuid::Uuid);
 
+impl<'a> rocket::request::FromParam<'a> for MachineId {
+    type Error = uuid::Error;
+
+    #[fehler::throws(Self::Error)]
+    fn from_param(param: &'a rocket::http::RawStr) -> Self {
+        Self(param.parse()?)
+    }
+}
+
 impl std::fmt::Debug for MachineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MachineId({})", self.0)
