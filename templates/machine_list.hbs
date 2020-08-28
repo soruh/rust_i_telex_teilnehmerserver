@@ -1,4 +1,5 @@
 <section id="machine_list">
+
     <table>
         <tr>
             <td>{{locl "number"}}</td>
@@ -6,7 +7,7 @@
             <td>{{locl "model"}}</td>
             <td>{{locl "extension"}}</td>
             <td>{{locl "timestamp"}}</td>
-            {{#if ../show_connector}}
+            {{#if connector_name_map}}
             <td>{{locl "connector"}}</td>
             {{/if}}
         </tr>
@@ -18,10 +19,12 @@
             <td>{{this.model}}</td>
             <td>{{this.extension}}</td>
             <td>{{this.timestamp}}</td>
-            {{#if ../show_connector}}
-            <td onclick="window.location='/connector/{{this.connector}}'">{{connector_name this.connector}}</td>
+            {{#if ../connector_name_map}}
+            <td onclick="window.location='/connector/{{this.connector}}'">
+                {{connector_name this.connector ../connector_name_map}}</td>
             {{/if}}
         </tr>
         {{/each}}
         <table>
+
 </section>

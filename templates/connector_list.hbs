@@ -5,7 +5,7 @@
             <td>{{locl "address"}}</td>
             <td>{{locl "port"}}</td>
             <td>{{locl "timestamp"}}</td>
-            {{#if ../show_owner}}
+            {{#if user_name_map}}
             <td>{{locl "owner"}}</td>
             {{/if}}
         </tr>
@@ -16,8 +16,8 @@
             <td>{{this.address}}</td>
             <td>{{this.port}}</td>
             <td>{{this.timestamp}}</td>
-            {{#if ../show_owner}}
-            <td onclick="window.location='/user/{{this.owner}}'">{{user_name this.owner}}</td>
+            {{#if ../user_name_map}}
+            <td onclick="window.location='/user/{{this.owner}}'">{{user_name this.owner ../user_name_map}}</td>
             {{/if}}
         </tr>
         {{/each}}

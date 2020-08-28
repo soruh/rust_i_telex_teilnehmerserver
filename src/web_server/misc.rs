@@ -142,6 +142,23 @@ pub fn not_found(req: &Request<'_>) -> LocaleTemplate {
     })
 }
 
+#[derive(Debug)]
+struct HelperError(std::borrow::Cow<'static, str>);
+
+impl std::fmt::Display for HelperError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Helper Error: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelperError {}
+
+impl From<HelperError> for RenderError {
+    fn from(error: HelperError) -> Self {
+        Self::from_error("helper error", error)
+    }
+}
+
 #[throws(RenderError)]
 pub fn user_name_helper(
     helper: &Helper<'_, '_>,
@@ -150,22 +167,25 @@ pub fn user_name_helper(
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {
-    // TODO: convert errors to `RenderError`
+    let mut params = helper.params().iter();
 
-    assert_eq!(
-        context.data().get("show_owner"),
-        Some(&serde_json::json!(true)),
-        "You can only use this helper when showing connector owners"
-    );
+    let user_id = params
+        .next()
+        .ok_or_else(|| HelperError("`user_name` helper needs at least one argument".into()))?
+        .render();
 
-    let user_id = helper.params().first().expect("`user_name_helper` needs one argument").render();
+    let context = if let Some(context) = params.next() {
+        context.value()
+    } else {
+        context
+            .data()
+            .get("user_name_map")
+            .ok_or_else(|| HelperError("`user_name_map` not found in context".into()))?
+    };
 
     let user_name = context
-        .data()
-        .get("user_name_map")
-        .expect("missing `user_name_map`")
-        .get(user_id)
-        .expect("missing id in user_name_map");
+        .get(&user_id)
+        .ok_or_else(|| HelperError(format!("missing id {} in `user_name_map`", user_id).into()))?;
 
     out.write(user_name.as_str().unwrap())?;
 }
@@ -178,23 +198,25 @@ pub fn connector_name_helper(
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {
-    // TODO: convert errors to `RenderError`
+    let mut params = helper.params().iter();
 
-    assert_eq!(
-        context.data().get("show_connector"),
-        Some(&serde_json::json!(true)),
-        "You can only use this helper when showing machine connectors"
-    );
+    let connector_id = params
+        .next()
+        .ok_or_else(|| HelperError("`connector_name` helper needs at least one argument".into()))?
+        .render();
 
-    let connector =
-        helper.params().first().expect("`connector_name_helper` needs one argument").render();
+    let context = if let Some(context) = params.next() {
+        context.value()
+    } else {
+        context
+            .data()
+            .get("connector_name_map")
+            .ok_or_else(|| HelperError("`connector_name_map` not found in context".into()))?
+    };
 
-    let connector_name = context
-        .data()
-        .get("connector_name_map")
-        .expect("missing `connector_name_map`")
-        .get(connector)
-        .expect("missing id in connector_name_map");
+    let connector_name = context.get(&connector_id).ok_or_else(|| {
+        HelperError(format!("missing id {} in `connector_name_map`", connector_id).into())
+    })?;
 
     out.write(connector_name.as_str().unwrap())?;
 }
@@ -262,10 +284,25 @@ pub fn localisation_helper(
     }
 }
 
+#[throws(RenderError)]
+pub fn debug(
+    helper: &Helper<'_, '_>,
+    _handlebars: &Handlebars,
+    context: &Context,
+    _render_context: &mut RenderContext<'_, '_>,
+    out: &mut dyn Output,
+) {
+    out.write("<pre>")?;
+    out.write(&format!("helper: {:#?}\n<hr />", helper))?;
+    out.write(&format!("context: {:#?}", context))?;
+    out.write("</pre>")?;
+}
+
 pub fn setup_handlebars(handlebars: &mut handlebars::Handlebars<'static>) {
     handlebars.set_strict_mode(true);
     handlebars.source_map_enabled(true);
     handlebars.register_helper("locl", Box::new(localisation_helper));
     handlebars.register_helper("user_name", Box::new(user_name_helper));
     handlebars.register_helper("connector_name", Box::new(connector_name_helper));
+    handlebars.register_helper("dbg", Box::new(debug));
 }

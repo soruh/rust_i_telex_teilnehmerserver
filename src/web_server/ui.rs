@@ -19,23 +19,6 @@ pub fn index() -> Redirect {
     Redirect::to("/list/users")
 }
 
-#[get("/list/users")]
-#[throws(Status)]
-pub fn list_users(db: State<Database>) -> LocaleTemplate {
-    #[derive(serde::Serialize)]
-    struct UserListContext {
-        page: Page,
-        users: Vec<User>,
-    }
-
-    let users = db.users().err_to_status()?.iter().all_values().err_to_status()?;
-
-    LocaleTemplate::render("list_users", UserListContext {
-        page: Page::new("layout", "user_list"),
-        users,
-    })
-}
-
 #[throws(Status)]
 fn make_name_map<'value, K: std::fmt::Debug + Eq + std::hash::Hash + Copy, V>(
     ids: impl Iterator<Item = K>,
@@ -59,21 +42,32 @@ where
     name_map
 }
 
+#[get("/list/users")]
+#[throws(Status)]
+pub fn list_users(db: State<Database>) -> LocaleTemplate {
+    let users = db.users().err_to_status()?.iter().all_values().err_to_status()?;
+
+    LocaleTemplate::render("list_users", UserListContext {
+        page: Some(Page::new("layout", "user_list")),
+        users,
+    })
+}
+
 #[get("/list/connectors")]
 #[throws(Status)]
 pub fn list_connectors(db: State<Database>) -> LocaleTemplate {
     let connectors = db.connectors().err_to_status()?.iter().all_values().err_to_status()?;
 
-    let user_name_map =
-        make_name_map(connectors.iter().map(|x| x.owner), db.users().err_to_status()?, |user| {
-            user.name
-        })?;
+    let user_name_map = Some(make_name_map(
+        connectors.iter().map(|x| x.owner),
+        db.users().err_to_status()?,
+        |user| user.name,
+    )?);
 
     LocaleTemplate::render("list_connectors", ConnectorListContext {
         page: Some(Page::new("layout", "connector_list")),
         connectors,
         user_name_map,
-        show_owner: true,
     })
 }
 
@@ -82,46 +76,42 @@ pub fn list_connectors(db: State<Database>) -> LocaleTemplate {
 pub fn list_machines(db: State<Database>) -> LocaleTemplate {
     let machines = db.machines().err_to_status()?.iter().all_values().err_to_status()?;
 
-    let connector_name_map = make_name_map(
+    let connector_name_map = Some(make_name_map(
         machines.iter().map(|x| x.connector),
         db.connectors().err_to_status()?,
         |connector| connector.name,
-    )?;
+    )?);
 
     LocaleTemplate::render("list_machines", MachineListContext {
         page: Some(Page::new("layout", "machine_list")),
         machines,
         connector_name_map,
-        show_connector: true,
     })
+}
+
+#[derive(serde::Serialize)]
+struct UserListContext {
+    page: Option<Page>,
+    users: Vec<User>,
 }
 
 #[derive(serde::Serialize)]
 struct ConnectorListContext {
     page: Option<Page>,
     connectors: Vec<Connector>,
-    user_name_map: HashMap<UserId, String>,
-    show_owner: bool,
+    user_name_map: Option<HashMap<UserId, String>>,
 }
 
 #[derive(serde::Serialize)]
 struct MachineListContext {
     page: Option<Page>,
     machines: Vec<Machine>,
-    connector_name_map: HashMap<ConnectorId, String>,
-    show_connector: bool,
+    connector_name_map: Option<HashMap<ConnectorId, String>>,
 }
 
 #[get("/user/<id>")]
 #[throws(Status)]
 pub fn user(id: UserId, db: State<Database>) -> LocaleTemplate {
-    #[derive(serde::Serialize)]
-    struct UserContext {
-        page: Page,
-        user: User,
-        connector_data: ConnectorListContext,
-    }
-
     let user = db.users().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
     let connectors = db
         .connectors()
@@ -133,28 +123,23 @@ pub fn user(id: UserId, db: State<Database>) -> LocaleTemplate {
         .filter(|x| x.owner == user.id)
         .collect();
 
+    #[derive(serde::Serialize)]
+    struct UserContext {
+        page: Page,
+        user_data: UserListContext,
+        connector_data: ConnectorListContext,
+    }
+
     LocaleTemplate::render("user", UserContext {
         page: Page::new("layout", "user_detail"),
-        user,
-        connector_data: ConnectorListContext {
-            page: None,
-            connectors,
-            show_owner: false,
-            user_name_map: HashMap::new(),
-        },
+        user_data: UserListContext { page: None, users: vec![user] },
+        connector_data: ConnectorListContext { page: None, connectors, user_name_map: None },
     })
 }
 
 #[get("/connector/<id>")]
 #[throws(Status)]
 pub fn connector(id: ConnectorId, db: State<Database>) -> LocaleTemplate {
-    #[derive(serde::Serialize)]
-    struct ConnectorContext {
-        page: Page,
-        connector: Connector,
-        machine_data: MachineListContext,
-    }
-
     let connector =
         db.connectors().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
 
@@ -168,15 +153,21 @@ pub fn connector(id: ConnectorId, db: State<Database>) -> LocaleTemplate {
         .filter(|x| x.connector == connector.id)
         .collect();
 
+    #[derive(serde::Serialize)]
+    struct ConnectorContext {
+        page: Page,
+        connector_data: ConnectorListContext,
+        machine_data: MachineListContext,
+    }
+
     LocaleTemplate::render("connector", ConnectorContext {
         page: Page::new("layout", "connector_detail"),
-        connector,
-        machine_data: MachineListContext {
+        connector_data: ConnectorListContext {
             page: None,
-            machines,
-            show_connector: false,
-            connector_name_map: HashMap::new(),
+            connectors: vec![connector],
+            user_name_map: None,
         },
+        machine_data: MachineListContext { page: None, machines, connector_name_map: None },
     })
 }
 
@@ -186,17 +177,25 @@ pub fn machine(id: MachineId, db: State<Database>) -> LocaleTemplate {
     let machine =
         db.machines().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
 
-    let connector_name_map = make_name_map(
+    let connector_name_map = Some(make_name_map(
         std::iter::once(machine.connector),
         db.connectors().err_to_status()?,
         |connector| connector.name,
-    )?;
+    )?);
 
-    LocaleTemplate::render("machine", MachineListContext {
-        page: Some(Page::new("layout", "machine_detail")),
-        machines: vec![machine],
-        connector_name_map,
-        show_connector: true,
+    #[derive(serde::Serialize)]
+    struct MachineContext {
+        page: Page,
+        machine_data: MachineListContext,
+    }
+
+    LocaleTemplate::render("machine", MachineContext {
+        page: Page::new("layout", "machine_detail"),
+        machine_data: MachineListContext {
+            page: None,
+            machines: vec![machine],
+            connector_name_map,
+        },
     })
 }
 

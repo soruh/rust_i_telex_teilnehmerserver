@@ -1,22 +1,8 @@
 {{#*inline "content"}}
-<section id="connector_list">
-  <h3>{{connector.name}}</h3>
+<section id="connector_details">
+  <h3>{{connector_data.connectors.0.name}}</h3>
 
-  <table>
-    <tr>
-      <td>{{locl "name"}}</td>
-      <td>{{locl "address"}}</td>
-      <td>{{locl "port"}}</td>
-      <td>{{locl "timestamp"}}</td>
-    </tr>
-
-    <tr>
-      <td>{{connector.name}}</td>
-      <td>{{connector.address}}</td>
-      <td>{{connector.port}}</td>
-      <td>{{connector.timestamp}}</td>
-    </tr>
-    <table>
+  {{> connector_list connector_data}}
 </section>
 <hr>
 </hr>
