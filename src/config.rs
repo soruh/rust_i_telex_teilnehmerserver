@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 #[allow(non_snake_case)]
 pub struct Config {
@@ -12,7 +12,7 @@ pub struct Config {
     pub SERVER_PIN: u32,
     pub DB_PATH: String,
     pub DB_PATH_TEMP: String,
-    pub SERVERS: Vec<SocketAddr>,
+    pub SERVERS: Vec<String>,
     pub LOG_FILE_PATH: Option<String>,
     pub LOG_LEVEL_FILE: Option<String>,
     pub LOG_LEVEL_TERM: Option<String>,
@@ -22,13 +22,12 @@ pub struct Config {
     pub WEBSERVER_SESSION_LIFETIME: Duration,
     pub WEBSERVER_REMOVE_SESSIONS_INTERVAL: Duration,
     pub WEBSERVER_SESSION_SECRET: Vec<u8>,
+
+    pub MIN_PASSWORD_HASH_TIME: Duration,
 }
 
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let servers: Vec<String> =
-            self.SERVERS.iter().map(|server| format!("{}", server)).collect();
-
         #[derive(Debug)]
         struct Censored;
 
@@ -42,7 +41,7 @@ impl std::fmt::Debug for Config {
             .field("server pin", &self.SERVER_PIN)
             .field("db path", &self.DB_PATH)
             .field("db path temp", &self.DB_PATH_TEMP)
-            .field("servers", &servers)
+            .field("servers", &self.SERVERS)
             .field("log file path", &self.LOG_FILE_PATH)
             .field("log level file", &self.LOG_LEVEL_FILE)
             .field("log level term", &self.LOG_LEVEL_TERM)
@@ -50,6 +49,7 @@ impl std::fmt::Debug for Config {
             .field("webserver password", &self.WEBSERVER_PASSWORD)
             .field("webserver session lifetime", &self.WEBSERVER_SESSION_LIFETIME)
             .field("webserver remove_sessions interval", &self.WEBSERVER_REMOVE_SESSIONS_INTERVAL)
+            .field("minimum passwort hashing time", &self.MIN_PASSWORD_HASH_TIME)
             .field("webserver session secret", &Censored)
             .finish()
     }
@@ -84,7 +84,7 @@ macro_rules! parse_bytes_from_base64_str {
 }
 
 impl Config {
-    pub async fn from_env() -> anyhow::Result<Self> {
+    pub fn from_env() -> anyhow::Result<Self> {
         use std::env::var;
         Ok(Self {
             CLIENT_TIMEOUT: parse_duration!("CLIENT_TIMEOUT"),
@@ -106,40 +106,14 @@ impl Config {
             WEBSERVER_REMOVE_SESSIONS_INTERVAL: parse_duration!(
                 "WEBSERVER_REMOVE_SESSIONS_INTERVAL"
             ),
-            SERVERS: parse_servers(get_variable!("SERVERS"))
-                .await
-                .context("failed to parse servers")?,
+            MIN_PASSWORD_HASH_TIME: parse_duration!("MIN_PASSWORD_HASH_TIME"),
+            SERVERS: parse_servers(get_variable!("SERVERS")),
         })
     }
 }
 
-async fn parse_servers(input: String) -> anyhow::Result<Vec<SocketAddr>> {
-    let mut servers: Vec<SocketAddr> = Vec::new();
-
-    for entry in input.split(',') {
-        if entry == "" {
-            continue;
-        }
-
-        // use tokio::net::ToSocketAddrs;
-        // let socket_addrs = entry.trim().to_socket_addrs().await?;
-
-        use tokio::net::lookup_host;
-        let mut socket_addrs: Vec<SocketAddr> = lookup_host(entry.trim()).await?.collect();
-
-        // only use the first result to prevent syncing a server twice
-        // (e.g. if there is both an Ipv4 and an Ipv6 address for a server)
-        // We prefer ipv4 addresses, since older servers only listen on those
-        let ipv4 = socket_addrs.iter().find(|addr| addr.is_ipv4());
-
-        if let Some(addr) = ipv4 {
-            servers.push(*addr);
-        } else if !socket_addrs.is_empty() {
-            servers.push(socket_addrs.remove(0));
-        }
-    }
-
-    Ok(servers)
+fn parse_servers(input: String) -> Vec<String> {
+    input.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect()
 }
 
 fn duration_from_string(input: String) -> anyhow::Result<Duration> {
@@ -148,6 +122,7 @@ fn duration_from_string(input: String) -> anyhow::Result<Duration> {
 
     if let Some(unit) = parts.next() {
         match unit {
+            "ms" => Ok(Duration::from_millis(number)),
             "s" => Ok(Duration::from_secs(number)),
             "m" => Ok(Duration::from_secs(number * 60)),
             "h" => Ok(Duration::from_secs(number * 60 * 60)),

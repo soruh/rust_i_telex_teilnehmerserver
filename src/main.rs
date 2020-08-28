@@ -6,9 +6,35 @@
 #[macro_use] extern crate log;
 extern crate serde;
 
+#[cfg(test)]
+pub fn get_config_or_set_blocking() -> &'static Config {
+    if let Some(cfg) = crate::CONFIG.get() {
+        cfg
+    } else {
+        if let Err(err) = dotenv::dotenv() {
+            if !err.not_found() {
+                panic!("Failed to load `.env` file: {}", err);
+            }
+        }
+
+        let cfg = Config::from_env().expect("Failed to read config");
+        let _ = CONFIG.set(cfg);
+
+        crate::CONFIG.get().unwrap()
+    }
+}
+
+#[cfg(not(test))]
 macro_rules! config {
     ($key:ident) => {
-        crate::CONFIG.get().unwrap().$key
+        crate::CONFIG.get().expect("No configuration loaded").$key
+    };
+}
+
+#[cfg(test)]
+macro_rules! config {
+    ($key:ident) => {
+        crate::get_config_or_set_blocking().$key
     };
 }
 
@@ -18,6 +44,7 @@ pub mod config;
 pub mod data_types;
 pub mod database;
 pub mod db;
+pub mod password;
 pub mod web_server;
 
 use anyhow::Context;
@@ -76,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    CONFIG.set(Config::from_env().await?).expect("Failed to set config");
+    CONFIG.set(Config::from_env()?).expect("Failed to set config");
 
     init_logger()?;
 
@@ -100,9 +127,11 @@ async fn main() -> anyhow::Result<()> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-            password: "This is super secret".into(),
+            password: password::Password::from_plain("This is super secret"),
         })
         .unwrap();
+
+    // dbg!(db.users().unwrap().get(user_id).unwrap());
 
     use rand::Rng;
 

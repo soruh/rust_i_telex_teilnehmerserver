@@ -1,7 +1,7 @@
 // use super::*;
 
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct UserId(uuid::Uuid);
+pub struct UserId(pub uuid::Uuid);
 
 impl<'a> rocket::request::FromParam<'a> for UserId {
     type Error = uuid::Error;
@@ -44,7 +44,7 @@ pub struct User {
     pub coordinates: Option<(f64, f64)>, // lat, long
     pub timestamp: u64,
 
-    pub password: String,
+    pub password: crate::password::Password,
 }
 
 #[allow(clippy::fallible_impl_from)]

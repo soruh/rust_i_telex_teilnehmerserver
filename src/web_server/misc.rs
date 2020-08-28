@@ -1,6 +1,11 @@
-use self::handlebars::{Context, Handlebars, Helper, Output, RenderContext, RenderError};
+use self::handlebars::{Handlebars, Helper, Output, RenderContext, RenderError};
 use super::*;
-use rocket::request::FromRequest;
+use crate::data_types::{User, UserId};
+use anyhow::Context;
+use rocket::{
+    http::{Cookie, CookieJar},
+    request::FromRequest,
+};
 use std::collections::HashMap;
 
 pub struct AcceptedLanguages(Vec<String>);
@@ -89,12 +94,73 @@ impl<'a, 'r> FromRequest<'a, 'r> for ApplicationLanguage {
     }
 }
 
-pub struct LocaleTemplate {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Auth {
+    user: User,
+    cookie: Cookie<'static>,
+}
+
+const AUTH_COOKIE: &str = "authentication";
+
+#[async_trait]
+impl<'a, 'r> FromRequest<'a, 'r> for Auth {
+    type Error = anyhow::Error;
+
+    async fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+        let run = || -> anyhow::Result<Option<Self>> {
+            let cookie = if let Some(cookie) = request.cookies().get_private(AUTH_COOKIE) {
+                cookie
+            } else {
+                return Ok(None);
+            };
+
+            let user_id: UserId = cookie
+                .value()
+                .parse::<uuid::Uuid>()
+                .context("user is logged in as an invalid UUID")?
+                .into();
+
+            let db = request.managed_state::<Database>().unwrap();
+
+            db.users()
+                .unwrap()
+                .get(user_id)
+                .unwrap()
+                .context("user is logged in as a User that does not exist")
+                .map(|user| Some(Auth { user, cookie }))
+        };
+        match run() {
+            Ok(Some(res)) => request::Outcome::Success(res),
+            Ok(None) => request::Outcome::Forward(()),
+            Err(err) => request::Outcome::Failure((rocket::http::Status::Forbidden, err)),
+        }
+    }
+}
+
+impl Auth {
+    pub fn deauthorize(self, cookies: &CookieJar) {
+        cookies.remove_private(self.cookie);
+    }
+
+    pub fn authorize(cookies: &CookieJar, user_id: UserId, remember: bool) {
+        let mut cookie = Cookie::new(AUTH_COOKIE, user_id.0.to_string());
+        cookie.set_expires(match remember {
+            true => Some(
+                time::OffsetDateTime::now_utc()
+                    + std::time::Duration::from_secs(60 * 60 * 24 * 365 * 10), // in 10 years
+            ),
+            false => None,
+        });
+        cookies.add_private(cookie);
+    }
+}
+
+pub struct ContextTemplate {
     name: std::borrow::Cow<'static, str>,
     context: Option<serde_json::Value>,
 }
 
-impl LocaleTemplate {
+impl ContextTemplate {
     pub fn render<S, C>(name: S, context: C) -> Self
     where
         S: Into<std::borrow::Cow<'static, str>>,
@@ -109,35 +175,61 @@ struct LocaleContext {
     ctx: Option<serde_json::Value>,
 }
 
-impl<'r, 'o: 'r> rocket::response::Responder<'r, 'o> for LocaleTemplate {
+impl<'r, 'o: 'r> rocket::response::Responder<'r, 'o> for ContextTemplate {
     fn respond_to(self, request: &'r Request<'_>) -> response::Result<'o> {
-        // TODO: what impact does this `block_on` have on performance?
-        match futures::executor::block_on(ApplicationLanguage::from_request(request)) {
-            outcome::Outcome::Success(locale) => {
-                info!(
-                    "Rendering template \x1b[32m{}\x1b[0m with locale \x1b[33m{:?}\x1b[0m.",
-                    self.name, locale
-                );
-                let mut map = if let Some(serde_json::Value::Object(map)) = self.context {
-                    map
-                } else {
-                    panic!(
-                        "The context to a `LocaleTemplate` must be a `serde_json::Value::Object`"
-                    )
-                };
-                map.insert("__locale".to_string(), serde_json::to_value(locale).unwrap());
-                let context = serde_json::Value::Object(map);
-                Template::render(self.name, context).respond_to(request)
-            }
+        let locale = if let outcome::Outcome::Success(locale) =
+            futures::executor::block_on(ApplicationLanguage::from_request(request))
+        {
+            locale
+        } else {
+            unreachable!()
+        };
 
-            _ => unreachable!(),
-        }
+        let auth: Option<User> = if let outcome::Outcome::Success(auth) =
+            futures::executor::block_on(Auth::from_request(request))
+        {
+            Some(auth.user)
+        } else {
+            None
+        };
+
+        info!(
+            "Rendering template \x1b[32m{}\x1b[0m with locale \x1b[33m{:?}\x1b[0m.",
+            self.name, locale
+        );
+        let mut map = if let Some(serde_json::Value::Object(map)) = self.context {
+            map
+        } else {
+            panic!("The context to a `ContextTemplate` must be a `serde_json::Value::Object`")
+        };
+
+        assert!(
+            map.insert("__locale".to_string(), serde_json::to_value(locale).unwrap()).is_none(),
+            "context already had `__locale`"
+        );
+
+        assert!(
+            map.insert("__auth".to_string(), serde_json::to_value(auth).unwrap()).is_none(),
+            "context already had `__auth`"
+        );
+
+        assert!(
+            map.insert(
+                "__uri".to_string(),
+                serde_json::to_value(request.uri().to_string()).unwrap()
+            )
+            .is_none(),
+            "context already had `__uri`"
+        );
+
+        let context = serde_json::Value::Object(map);
+        Template::render(self.name, context).respond_to(request)
     }
 }
 
 #[catch(404)]
-pub fn not_found(req: &Request<'_>) -> LocaleTemplate {
-    LocaleTemplate::render("error/404", hashmap! {
+pub fn not_found(req: &Request<'_>) -> ContextTemplate {
+    ContextTemplate::render("error/404", hashmap! {
         "path" => req.uri().path(),
     })
 }
@@ -163,7 +255,7 @@ impl From<HelperError> for RenderError {
 pub fn user_name_helper(
     helper: &Helper<'_, '_>,
     _handlebars: &Handlebars,
-    context: &Context,
+    context: &handlebars::Context,
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {
@@ -194,7 +286,7 @@ pub fn user_name_helper(
 pub fn connector_name_helper(
     helper: &Helper<'_, '_>,
     _handlebars: &Handlebars,
-    context: &Context,
+    context: &handlebars::Context,
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {
@@ -225,7 +317,7 @@ pub fn connector_name_helper(
 pub fn localisation_helper(
     helper: &Helper<'_, '_>,
     _handlebars: &Handlebars,
-    context: &Context,
+    context: &handlebars::Context,
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {
@@ -278,9 +370,10 @@ pub fn localisation_helper(
 
     if let Some(param) = helper.params().first() {
         let tag: String = param.render();
-        out.write(lang.get(&tag).ok_or_else(|| {
-            RenderError::new(&format!("missing tanslation \"{}::{}\"", locale, tag))
-        })?)?;
+        out.write(
+            lang.get(&tag)
+                .ok_or_else(|| RenderError::new(&format!("missing tanslation \"{}\"", tag)))?,
+        )?;
     }
 }
 
@@ -288,7 +381,7 @@ pub fn localisation_helper(
 pub fn debug(
     helper: &Helper<'_, '_>,
     _handlebars: &Handlebars,
-    context: &Context,
+    context: &handlebars::Context,
     _render_context: &mut RenderContext<'_, '_>,
     out: &mut dyn Output,
 ) {

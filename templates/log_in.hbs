@@ -1,0 +1,12 @@
+{{#*inline "content"}}
+<section id="log_in">
+    <form method="POST" action="/auth/log_in?source={{source}}">
+        <input name="username" placeholder="{{locl "username"}}"></input>
+        <input name="password" placeholder="{{locl "password"}}" type="password"></input>
+        <input name="remember" placeholder="{{locl "remember"}}" type="checkbox"></input>
+
+        <button type="submit">{{locl "submit"}}</button>
+    </form>
+</section>
+{{/inline}}
+{{> (page.parent) }}

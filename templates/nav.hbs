@@ -1,2 +1,9 @@
 <a href="/list/users">{{locl "user_list"}}</a> | <a href="/list/connectors">{{locl "connector_list"}}</a> | <a
-    href="/list/machines">{{locl "machine_list"}}</a>
+    href="/list/machines">{{locl "machine_list"}}</a> |
+<span>
+    {{#if __auth}}
+    {{__auth.name}}
+    {{else}}
+    <a href="/log_in?source={{__uri}}">{{locl "log_in"}}</a>
+    {{/if}}
+</span>

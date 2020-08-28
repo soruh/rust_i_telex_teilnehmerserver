@@ -89,10 +89,10 @@ pub fn start_background_tasks() -> (Vec<VoidJoinHandle>, Vec<oneshot::Sender<()>
     (join_handles, abort_senders)
 }
 
-async fn full_query_for_server(server: SocketAddr) -> anyhow::Result<()> {
+async fn full_query_for_server(server: String) -> anyhow::Result<()> {
     debug!("starting full query for server {}", server);
 
-    let mut client = connect_to(server).await?;
+    let mut client = connect_to(server.clone()).await?;
 
     client.state = State::Accepting;
 
@@ -121,7 +121,7 @@ async fn full_query() -> anyhow::Result<()> {
     info!("starting full query");
 
     for server in config!(SERVERS).iter() {
-        full_queries.push(full_query_for_server(*server));
+        full_queries.push(full_query_for_server(server.clone()));
     }
 
     for result in futures::future::join_all(full_queries).await {
@@ -143,13 +143,19 @@ async fn full_query() -> anyhow::Result<()> {
     Ok(()) //TODO
 }
 
-async fn connect_to(addr: SocketAddr) -> anyhow::Result<Client> {
+async fn connect_to(addr: String) -> anyhow::Result<Client> {
     info!("connecting to server at {}", addr);
+
+    let addr = addr
+        .to_socket_addrs()?
+        .into_iter()
+        .find(|addr| addr.is_ipv4())
+        .context("Server had no associated ipv4 address")?;
 
     Ok(Client::new(TcpStream::connect(addr).await?, addr))
 }
 
-async fn update_server_with_packages(server: SocketAddr, packages: Entries) -> anyhow::Result<()> {
+async fn update_server_with_packages(server: String, packages: Entries) -> anyhow::Result<()> {
     if config!(SERVER_PIN) == 0 {
         bail!(anyhow!("Not updating other servers without a server pin"));
     }
@@ -168,7 +174,7 @@ async fn update_server_with_packages(server: SocketAddr, packages: Entries) -> a
 }
 
 fn update_other_servers(
-    servers: Vec<SocketAddr>,
+    servers: Vec<String>,
 ) -> (Vec<VoidJoinHandle>, Vec<mpsc::UnboundedSender<Entries>>, Vec<oneshot::Sender<()>>) {
     let mut join_handles = Vec::new();
 
@@ -221,7 +227,9 @@ fn update_other_servers(
                     continue;
                 }
 
-                while let Err(err) = update_server_with_packages(server, packages.clone()).await {
+                while let Err(err) =
+                    update_server_with_packages(server.clone(), packages.clone()).await
+                {
                     error!(
                         "{:?}",
                         anyhow!(err).context(format!("Failed to update server {}", server))

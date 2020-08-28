@@ -21,7 +21,11 @@
     "model": "model",
     "extension": "extension",
     "connector": "I-Telex Connector",
-    "machine_detail": "Machine Details"
+    "machine_detail": "Machine Details",
+    "log_in": "log in",
+    "username": "user name",
+    "remember": "remember me",
+    "submit": "submit"
   },
   "German": {
     "id": "Id",
@@ -45,6 +49,10 @@
     "model": "Maschinentyp",
     "extension": "Durchwahl",
     "connector": "I-Telex Gerät",
-    "machine_detail": "Gerätedetails"
+    "machine_detail": "Gerätedetails",
+    "log_in": "Einloggen",
+    "username": "Benutzername",
+    "remember": "Eingeloged bleiben",
+    "submit": "Absenden"
   }
 }

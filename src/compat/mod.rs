@@ -4,6 +4,7 @@ pub mod background_tasks;
 pub mod client;
 
 use crate::database::Database;
+pub use std::net::ToSocketAddrs;
 
 const PEER_SEARCH_VERSION: u8 = 1;
 const FULL_QUERY_VERSION: u8 = 1;

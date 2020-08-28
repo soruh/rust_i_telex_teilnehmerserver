@@ -29,9 +29,11 @@ uuid = { version = "0.8.1", features = ["serde", "v4"] }
 sled = "0.34.3"
 fehler = "1.0.0"
 rmp-serde = "0.14.4"
-rocket = { version = "0.5.0-dev", features = ["tls"], git="https://github.com/SergioBenitez/Rocket" }
-rocket_contrib = { version = "0.5.0-dev", features = ["handlebars_templates"], git="https://github.com/SergioBenitez/Rocket" }
+rocket = { version = "0.5.0-dev", features = ["tls"], git="https://github.com/SergioBenitez/Rocket"}
+rocket_contrib = { version = "0.5.0-dev", features = ["handlebars_templates"], git="https://github.com/SergioBenitez/Rocket"}
 maplit = "1.0.2"
+rust-crypto = "0.2.36"
+time = "0.2.16"
 
 
 [profile.release]

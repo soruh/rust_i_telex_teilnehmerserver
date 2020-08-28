@@ -1,6 +1,10 @@
 use super::*;
 use crate::data_types::*;
-use rocket::http::Status;
+use misc::Auth;
+use rocket::{
+    http::{uri::Uri, CookieJar, Status},
+    request::Form,
+};
 use std::{borrow::Cow, collections::HashMap};
 #[derive(serde::Serialize)]
 struct Page {
@@ -42,12 +46,80 @@ where
     name_map
 }
 
+macro_rules! redirect_to {
+    ($source:expr) => {{
+        use std::convert::TryInto;
+
+        let uri: Uri =
+            $source.and_then(|x| x.try_into().ok()).or_else(|| "/".try_into().ok()).unwrap();
+
+        Redirect::permanent(uri)
+    }};
+}
+
+#[post("/auth/log_out?<source>", rank = 1)]
+pub fn log_out(source: Option<String>, auth: Auth, cookies: &CookieJar) -> Redirect {
+    auth.deauthorize(cookies);
+
+    redirect_to!(source)
+}
+
+#[post("/auth/log_out?<source>", rank = 2)]
+pub fn log_out_unauthorized(source: Option<String>) -> Redirect {
+    redirect_to!(source)
+}
+
+#[derive(rocket::FromForm)]
+pub struct LogInData {
+    username: String,
+    password: String,
+    remember: bool,
+}
+
+#[post("/auth/log_in?<source>", data = "<form>")]
+#[throws(Status)]
+pub fn auth_log_in(
+    source: Option<String>,
+    form: Form<LogInData>,
+    cookies: &CookieJar,
+    db: State<Database>,
+) -> Redirect {
+    let user = db
+        .users()
+        .err_to_status()?
+        .iter()
+        .values()
+        .map(|x| x.unwrap())
+        .find(|user| user.name == form.username)
+        .ok_or_else(|| Status::NotFound)?;
+
+    if !user.password.validate(&form.password) {
+        fehler::throw!(Status::Unauthorized);
+    }
+
+    Auth::authorize(cookies, user.id, form.remember);
+
+    redirect_to!(source)
+}
+
+#[get("/log_in?<source>")]
+#[throws(Status)]
+pub fn log_in(source: Option<String>) -> ContextTemplate {
+    #[derive(serde::Serialize)]
+    struct LogInContext {
+        page: Page,
+        source: Option<String>,
+    }
+
+    ContextTemplate::render("log_in", LogInContext { page: Page::new("layout", "log_in"), source })
+}
+
 #[get("/list/users")]
 #[throws(Status)]
-pub fn list_users(db: State<Database>) -> LocaleTemplate {
+pub fn list_users(db: State<Database>) -> ContextTemplate {
     let users = db.users().err_to_status()?.iter().all_values().err_to_status()?;
 
-    LocaleTemplate::render("list_users", UserListContext {
+    ContextTemplate::render("list_users", UserListContext {
         page: Some(Page::new("layout", "user_list")),
         users,
     })
@@ -55,7 +127,7 @@ pub fn list_users(db: State<Database>) -> LocaleTemplate {
 
 #[get("/list/connectors")]
 #[throws(Status)]
-pub fn list_connectors(db: State<Database>) -> LocaleTemplate {
+pub fn list_connectors(db: State<Database>) -> ContextTemplate {
     let connectors = db.connectors().err_to_status()?.iter().all_values().err_to_status()?;
 
     let user_name_map = Some(make_name_map(
@@ -64,7 +136,7 @@ pub fn list_connectors(db: State<Database>) -> LocaleTemplate {
         |user| user.name,
     )?);
 
-    LocaleTemplate::render("list_connectors", ConnectorListContext {
+    ContextTemplate::render("list_connectors", ConnectorListContext {
         page: Some(Page::new("layout", "connector_list")),
         connectors,
         user_name_map,
@@ -73,7 +145,7 @@ pub fn list_connectors(db: State<Database>) -> LocaleTemplate {
 
 #[get("/list/machines")]
 #[throws(Status)]
-pub fn list_machines(db: State<Database>) -> LocaleTemplate {
+pub fn list_machines(db: State<Database>) -> ContextTemplate {
     let machines = db.machines().err_to_status()?.iter().all_values().err_to_status()?;
 
     let connector_name_map = Some(make_name_map(
@@ -82,7 +154,7 @@ pub fn list_machines(db: State<Database>) -> LocaleTemplate {
         |connector| connector.name,
     )?);
 
-    LocaleTemplate::render("list_machines", MachineListContext {
+    ContextTemplate::render("list_machines", MachineListContext {
         page: Some(Page::new("layout", "machine_list")),
         machines,
         connector_name_map,
@@ -111,7 +183,7 @@ struct MachineListContext {
 
 #[get("/user/<id>")]
 #[throws(Status)]
-pub fn user(id: UserId, db: State<Database>) -> LocaleTemplate {
+pub fn user(id: UserId, db: State<Database>) -> ContextTemplate {
     let user = db.users().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
     let connectors = db
         .connectors()
@@ -130,7 +202,7 @@ pub fn user(id: UserId, db: State<Database>) -> LocaleTemplate {
         connector_data: ConnectorListContext,
     }
 
-    LocaleTemplate::render("user", UserContext {
+    ContextTemplate::render("user", UserContext {
         page: Page::new("layout", "user_detail"),
         user_data: UserListContext { page: None, users: vec![user] },
         connector_data: ConnectorListContext { page: None, connectors, user_name_map: None },
@@ -139,7 +211,7 @@ pub fn user(id: UserId, db: State<Database>) -> LocaleTemplate {
 
 #[get("/connector/<id>")]
 #[throws(Status)]
-pub fn connector(id: ConnectorId, db: State<Database>) -> LocaleTemplate {
+pub fn connector(id: ConnectorId, db: State<Database>) -> ContextTemplate {
     let connector =
         db.connectors().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
 
@@ -160,7 +232,7 @@ pub fn connector(id: ConnectorId, db: State<Database>) -> LocaleTemplate {
         machine_data: MachineListContext,
     }
 
-    LocaleTemplate::render("connector", ConnectorContext {
+    ContextTemplate::render("connector", ConnectorContext {
         page: Page::new("layout", "connector_detail"),
         connector_data: ConnectorListContext {
             page: None,
@@ -173,7 +245,7 @@ pub fn connector(id: ConnectorId, db: State<Database>) -> LocaleTemplate {
 
 #[get("/machine/<id>")]
 #[throws(Status)]
-pub fn machine(id: MachineId, db: State<Database>) -> LocaleTemplate {
+pub fn machine(id: MachineId, db: State<Database>) -> ContextTemplate {
     let machine =
         db.machines().err_to_status()?.get(id).err_to_status()?.ok_or(Status::NotFound)?;
 
@@ -189,7 +261,7 @@ pub fn machine(id: MachineId, db: State<Database>) -> LocaleTemplate {
         machine_data: MachineListContext,
     }
 
-    LocaleTemplate::render("machine", MachineContext {
+    ContextTemplate::render("machine", MachineContext {
         page: Page::new("layout", "machine_detail"),
         machine_data: MachineListContext {
             page: None,
@@ -202,6 +274,18 @@ pub fn machine(id: MachineId, db: State<Database>) -> LocaleTemplate {
 #[macro_export]
 macro_rules! ui_routes {
     () => {
-        routes![index, list_users, user, list_connectors, connector, list_machines, machine]
+        routes![
+            index,
+            list_users,
+            user,
+            list_connectors,
+            connector,
+            list_machines,
+            machine,
+            log_out,
+            log_out_unauthorized,
+            auth_log_in,
+            log_in
+        ]
     };
 }

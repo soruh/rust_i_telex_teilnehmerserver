@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct MachineId(uuid::Uuid);
+pub struct MachineId(pub uuid::Uuid);
 
 impl<'a> rocket::request::FromParam<'a> for MachineId {
     type Error = uuid::Error;
